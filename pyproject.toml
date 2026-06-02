@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "mentalhealthiq"
+version = "0.1.0"
+description = "Depression severity prediction API with fairness detection"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.111.0",
+    "uvicorn>=0.29.0",
+    "pandas>=2.2.2",
+    "numpy>=1.26.4",
+    "scikit-learn>=1.4.2",
+    "xgboost>=2.0.3",
+    "imbalanced-learn>=0.12.2",
+    "joblib>=1.4.2",
+    "pymongo>=4.7.2",
+    "python-dotenv>=1.0.1",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["mentalhealthiq*"]
