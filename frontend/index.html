@@ -1,0 +1,48 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MentalHealthIQ Dashboard</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <div id="app">
+        <!-- Navigation Header -->
+        <header class="navbar">
+            <div class="container navbar-content">
+                <a href="#" class="logo" onclick="navigate('home'); return false;">MentalHealthIQ</a>
+                <nav class="nav-menu">
+                    <a href="#" data-page="home" onclick="navigate('home'); return false;">Home</a>
+                    <a href="#" data-page="dashboard" onclick="navigate('dashboard'); return false;">Dashboard</a>
+                    <a href="#" data-page="predict" onclick="navigate('predict'); return false;">Predict</a>
+                    <a href="#" data-page="fairness" onclick="navigate('fairness'); return false;">Fairness</a>
+                    <a href="#" data-page="history" onclick="navigate('history'); return false;">History</a>
+                    <a href="#" data-page="metrics" onclick="navigate('metrics'); return false;">Metrics</a>
+                </nav>
+            </div>
+        </header>
+
+        <div class="main-container">
+            <aside class="sidebar hidden-mobile">
+                <div class="sidebar-content">
+                    <h3 class="sidebar-title">Navigation</h3>
+                    <ul class="sidebar-menu">
+                        <li><a href="#" data-page="home" onclick="navigate('home'); return false;">Home</a></li>
+                        <li><a href="#" data-page="dashboard" onclick="navigate('dashboard'); return false;">Dashboard</a></li>
+                        <li><a href="#" data-page="predict" onclick="navigate('predict'); return false;">Predict</a></li>
+                        <li><a href="#" data-page="fairness" onclick="navigate('fairness'); return false;">Fairness</a></li>
+                        <li><a href="#" data-page="history" onclick="navigate('history'); return false;">History</a></li>
+                        <li><a href="#" data-page="metrics" onclick="navigate('metrics'); return false;">Metrics</a></li>
+                    </ul>
+                </div>
+            </aside>
+
+            <main id="content" class="content"></main>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
