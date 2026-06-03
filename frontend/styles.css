@@ -11,7 +11,7 @@
 html, body {
     min-height: 100%;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    background-color: #f3f4f6;
+    background-color: #eef2f7;
     color: #1f2937;
 }
 
@@ -125,7 +125,7 @@ input, select, textarea {
 .main-container {
     display: flex;
     gap: 1.5rem;
-    max-width: 1280px;
+    max-width: 1440px;
     margin: 0 auto;
     padding: 1.5rem;
     flex: 1;
@@ -180,8 +180,14 @@ input, select, textarea {
 .page-title {
     font-size: 2rem;
     font-weight: 700;
-    margin-bottom: 1rem;
+    margin-bottom: 0.35rem;
     color: #0f172a;
+}
+
+.page-kicker {
+    color: #64748b;
+    margin-bottom: 1.25rem;
+    max-width: 760px;
 }
 
 .page-subtitle {
@@ -204,8 +210,12 @@ input, select, textarea {
 }
 
 .chart-grid {
-    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
     margin-bottom: 1rem;
+}
+
+.chart-grid-wide {
+    grid-template-columns: 1.15fr 0.85fr;
 }
 
 .metrics-grid {
@@ -220,28 +230,58 @@ input, select, textarea {
 .form-section {
     background-color: white;
     border: 1px solid #e2e8f0;
-    border-radius: 1rem;
+    border-radius: 0.5rem;
     padding: 1.25rem;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+    box-shadow: 0 10px 28px rgba(15, 23, 42, 0.06);
 }
 
 .stat-label {
     color: #475569;
     font-size: 0.9rem;
     margin-bottom: 0.75rem;
+    font-weight: 700;
 }
 
 .stat-value {
     font-size: 2rem;
     font-weight: 700;
     color: #0f172a;
+    line-height: 1.1;
+}
+
+.stat-note {
+    margin-top: 0.75rem;
+    color: #64748b;
+    font-size: 0.9rem;
+}
+
+.stat-card.accent-blue {
+    border-left: 4px solid #2563eb;
+}
+
+.stat-card.accent-green {
+    border-left: 4px solid #059669;
+}
+
+.stat-card.accent-amber {
+    border-left: 4px solid #d97706;
+}
+
+.stat-card.accent-red {
+    border-left: 4px solid #dc2626;
 }
 
 .chart-title {
     font-size: 1rem;
     font-weight: 700;
-    margin-bottom: 1rem;
+    margin-bottom: 0.35rem;
     color: #0f172a;
+}
+
+.chart-subtitle {
+    color: #64748b;
+    font-size: 0.9rem;
+    margin-bottom: 1rem;
 }
 
 .pill {
@@ -269,6 +309,8 @@ th,
 td {
     padding: 0.9rem 0.85rem;
     border-bottom: 1px solid #e2e8f0;
+    text-align: left;
+    vertical-align: middle;
 }
 
 th {
@@ -281,6 +323,37 @@ th {
 
 tbody tr:hover {
     background-color: #f8fafc;
+}
+
+.risk-badge,
+.severity-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 999px;
+    padding: 0.25rem 0.6rem;
+    font-size: 0.8rem;
+    font-weight: 700;
+    white-space: nowrap;
+}
+
+.risk-low,
+.severity-minimal {
+    background: #dcfce7;
+    color: #166534;
+}
+
+.risk-medium,
+.severity-mild,
+.severity-moderate {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.risk-high,
+.severity-moderately-severe,
+.severity-severe {
+    background: #fee2e2;
+    color: #991b1b;
 }
 
 button.btn {
@@ -414,7 +487,74 @@ button.btn-danger {
 }
 
 .chart-card {
-    min-height: 320px;
+    min-height: 360px;
+}
+
+.chart-canvas-wrap {
+    position: relative;
+    height: 280px;
+}
+
+.chart-canvas-wrap.tall {
+    height: 360px;
+}
+
+.insight-list {
+    display: grid;
+    gap: 0.75rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.insight-list li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    padding: 0.8rem 0;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.insight-list li:last-child {
+    border-bottom: none;
+}
+
+.insight-label {
+    color: #475569;
+    font-weight: 600;
+}
+
+.insight-value {
+    color: #0f172a;
+    font-weight: 800;
+    text-align: right;
+}
+
+.metric-bar {
+    margin-top: 0.9rem;
+    width: 100%;
+    height: 0.55rem;
+    border-radius: 999px;
+    overflow: hidden;
+    background: #e2e8f0;
+}
+
+.metric-bar span {
+    display: block;
+    height: 100%;
+    background: #2563eb;
+}
+
+.matrix-table td:not(:first-child),
+.matrix-table th:not(:first-child) {
+    text-align: center;
+}
+
+.matrix-cell {
+    border-radius: 0.4rem;
+    font-weight: 800;
+    color: #0f172a;
 }
 
 .empty-state {
@@ -426,6 +566,10 @@ button.btn-danger {
 @media (max-width: 1024px) {
     .main-container {
         padding: 1rem;
+    }
+
+    .chart-grid-wide {
+        grid-template-columns: 1fr;
     }
 }
 
@@ -453,5 +597,14 @@ button.btn-danger {
 
     .sidebar-menu a {
         padding: 0.85rem;
+    }
+
+    .chart-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .chart-canvas-wrap,
+    .chart-canvas-wrap.tall {
+        height: 300px;
     }
 }
