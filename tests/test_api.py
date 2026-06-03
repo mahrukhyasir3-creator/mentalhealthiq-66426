@@ -1,77 +1,162 @@
-import os
 from pathlib import Path
 
 import pandas as pd
 import pytest
 from fastapi.testclient import TestClient
 
-from mentalhealthiq.api import app
+import mentalhealthiq.api as api
 
 
-def _sample_prediction_payload() -> dict:
-    raw_test_path = Path('data/processed/test_raw.csv')
-    assert raw_test_path.exists(), 'Raw test dataset is required for API tests'
-
+def _sample_prediction_payload(raw_test_path: Path) -> dict:
     raw_df = pd.read_csv(raw_test_path)
     sample = raw_df.iloc[0]
 
     return {
-        'RIDAGEYR': int(sample['RIDAGEYR']),
-        'RIAGENDR': int(sample['RIAGENDR']),
-        'RIDRETH1': int(sample['RIDRETH1']),
-        'INDHHIN2': int(sample['INDHHIN2']),
-        'DMDEDUC2': int(sample['DMDEDUC2']),
-        'DMDMARTL': int(sample['DMDMARTL']),
-        'AGE_GROUP': sample['AGE_GROUP'],
-        'DPQ010': int(sample['DPQ010']),
-        'DPQ020': int(sample['DPQ020']),
-        'DPQ030': int(sample['DPQ030']),
-        'DPQ040': int(sample['DPQ040']),
-        'DPQ050': int(sample['DPQ050']),
-        'DPQ060': int(sample['DPQ060']),
-        'DPQ070': int(sample['DPQ070']),
-        'DPQ080': int(sample['DPQ080']),
-        'DPQ090': int(sample['DPQ090']),
+        "RIDAGEYR": int(sample["RIDAGEYR"]),
+        "RIAGENDR": int(sample["RIAGENDR"]),
+        "RIDRETH1": int(sample["RIDRETH1"]),
+        "INDHHIN2": int(sample["INDHHIN2"]),
+        "DMDEDUC2": int(sample["DMDEDUC2"]),
+        "DMDMARTL": int(sample["DMDMARTL"]),
+        "DPQ010": int(sample["DPQ010"]),
+        "DPQ020": int(sample["DPQ020"]),
+        "DPQ030": int(sample["DPQ030"]),
+        "DPQ040": int(sample["DPQ040"]),
+        "DPQ050": int(sample["DPQ050"]),
+        "DPQ060": int(sample["DPQ060"]),
+        "DPQ070": int(sample["DPQ070"]),
+        "DPQ080": int(sample["DPQ080"]),
+        "DPQ090": int(sample["DPQ090"]),
     }
 
 
 @pytest.fixture(autouse=True)
-def disable_mongodb(monkeypatch):
-    monkeypatch.delenv('MONGODB_URI', raising=False)
-    monkeypatch.delenv('MONGODB_DATABASE', raising=False)
-    monkeypatch.delenv('MONGODB_COLLECTION', raising=False)
+def disable_mongodb(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.delenv("MONGODB_URI", raising=False)
+    monkeypatch.delenv("MONGODB_DATABASE", raising=False)
+    monkeypatch.delenv("MONGODB_COLLECTION", raising=False)
     return None
 
 
+def test_api_imports_without_crashing() -> None:
+    assert api.app.title == "MentalHealthIQ Prediction API"
+
+
 def test_health_check_endpoint() -> None:
-    client = TestClient(app)
-    response = client.get('/health')
+    client = TestClient(api.app)
+    response = client.get("/health")
 
     assert response.status_code == 200
     json_data = response.json()
-    assert json_data['status'] == 'healthy'
-    assert 'model_path' in json_data
+    assert json_data["api"] == "ready"
+    assert json_data["model"] in {"ready", "missing"}
+    assert json_data["preprocessor"] in {"ready", "missing"}
+    assert json_data["mongo"] in {"ready", "error"}
 
 
-def test_predict_endpoint() -> None:
-    client = TestClient(app)
-    payload = _sample_prediction_payload()
-    response = client.post('/predict', json=payload)
+def test_predictions_returns_empty_list_when_mongodb_not_configured() -> None:
+    original_get_predictions = api.mongo_db.get_predictions
+    api.mongo_db.get_predictions = lambda limit=100: []
+    client = TestClient(api.app)
+    try:
+        response = client.get("/predictions?limit=100")
+        assert response.status_code == 200
+        assert response.json() == []
+    finally:
+        api.mongo_db.get_predictions = original_get_predictions
+
+
+def test_predict_endpoint_uses_temp_artifacts(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "MODEL_PATH", ml_artifacts["model_path"])
+    monkeypatch.setattr(api, "PREPROCESSOR_PATH", ml_artifacts["preprocessor_path"])
+    api.app.state.inference = None
+
+    with TestClient(api.app) as client:
+        response = client.post("/predict", json=_sample_prediction_payload(ml_artifacts["test_raw_path"]))
 
     assert response.status_code == 200
     json_data = response.json()
-    assert 'severity' in json_data
-    assert 'risk_score' in json_data
-    assert 'warning' in json_data
-    assert json_data['predictions_saved'] is False
+    assert "predicted_severity" in json_data
+    assert "risk_score" in json_data
+    assert "risk_band" in json_data
+    assert "phq9_total" in json_data
+    assert "recommendation" in json_data
+    assert "fairness_flag" in json_data
+    assert "explanation" in json_data
+    assert "warning" in json_data
+    assert "probabilities" in json_data
+    assert "timestamp" in json_data
+    assert json_data["predictions_saved"] is False
 
 
-def test_fairness_report_endpoint() -> None:
-    client = TestClient(app)
-    response = client.get('/fairness-report')
+def test_predict_and_save_returns_clear_error_when_mongodb_unavailable(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "MODEL_PATH", ml_artifacts["model_path"])
+    monkeypatch.setattr(api, "PREPROCESSOR_PATH", ml_artifacts["preprocessor_path"])
+    monkeypatch.setattr(api.mongo_db, "save_prediction", lambda document: None)
+    api.app.state.inference = None
+
+    with TestClient(api.app) as client:
+        response = client.post("/predict-and-save", json=_sample_prediction_payload(ml_artifacts["test_raw_path"]))
+
+    assert response.status_code == 503
+    assert "MongoDB is not available" in response.json()["detail"]
+
+
+def test_fairness_report_endpoint_uses_temp_artifacts(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "FAIRNESS_REPORT_PATH", ml_artifacts["fairness_report_path"])
+
+    client = TestClient(api.app)
+    response = client.get("/fairness-report")
 
     assert response.status_code == 200
     json_data = response.json()
-    assert 'report_path' in json_data
-    assert isinstance(json_data['records'], list)
-    assert len(json_data['records']) > 0
+    assert "report_path" in json_data
+    assert isinstance(json_data["records"], list)
+    assert len(json_data["records"]) > 0
+    assert "group_column" in json_data["records"][0]
+
+
+def test_dashboard_patient_and_fairness_summary_endpoints(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "FAIRNESS_REPORT_PATH", ml_artifacts["fairness_report_path"])
+    monkeypatch.setattr(api.mongo_db, "get_predictions", lambda limit=500: [])
+    monkeypatch.setattr(api.mongo_db, "get_patient_history", lambda patient_id: [])
+    monkeypatch.setattr(
+        api.mongo_db,
+        "get_patient_comparison",
+        lambda patient_id: {
+            "patient_id": patient_id,
+            "has_comparison": False,
+            "has_enough_history": False,
+            "status": "insufficient_history",
+            "summary": "At least two saved visits are needed for comparison.",
+        },
+    )
+    monkeypatch.setattr(api.mongo_db, "get_stats", lambda: {"total_predictions": 0})
+
+    client = TestClient(api.app)
+
+    stats_response = client.get("/stats")
+    history_response = client.get("/patients/P-1001/history")
+    comparison_response = client.get("/patients/P-1001/comparison")
+    fairness_summary_response = client.get("/fairness-summary")
+
+    assert stats_response.status_code == 200
+    assert stats_response.json()["total_predictions"] == 0
+    assert history_response.status_code == 200
+    assert history_response.json() == []
+    assert comparison_response.status_code == 200
+    assert comparison_response.json()["has_comparison"] is False
+    assert fairness_summary_response.status_code == 200
+    assert "bias_detected" in fairness_summary_response.json()

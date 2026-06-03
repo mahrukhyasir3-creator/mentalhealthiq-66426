@@ -3,23 +3,32 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MentalHealthIQ Dashboard</title>
+    <title>MentalHealthIQ Clinical Screening</title>
     <link rel="stylesheet" href="styles.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 <body>
-    <div id="app">
-        <!-- Navigation Header -->
-        <header class="navbar">
+    <div id="app" class="app-shell">
+        <header class="navbar topbar">
             <div class="container navbar-content">
-                <a href="#" class="logo" onclick="navigate('home'); return false;">MentalHealthIQ</a>
+                <a href="#" class="logo" onclick="navigateTo('home'); return false;">
+                    <span class="logo-mark">M</span>
+                    <span>
+                        <strong>MentalHealthIQ</strong>
+                        <small>PHQ-9 Depression Severity Screening</small>
+                    </span>
+                </a>
                 <nav class="nav-menu">
-                    <a href="#" data-page="home" onclick="navigate('home'); return false;">Home</a>
-                    <a href="#" data-page="dashboard" onclick="navigate('dashboard'); return false;">Dashboard</a>
-                    <a href="#" data-page="predict" onclick="navigate('predict'); return false;">Predict</a>
-                    <a href="#" data-page="fairness" onclick="navigate('fairness'); return false;">Fairness</a>
-                    <a href="#" data-page="history" onclick="navigate('history'); return false;">History</a>
-                    <a href="#" data-page="metrics" onclick="navigate('metrics'); return false;">Metrics</a>
+                    <a href="#" data-page="home" onclick="navigateTo('home'); return false;">Home</a>
+                    <a href="#" data-page="dashboard" onclick="navigateTo('dashboard'); return false;">Dashboard</a>
+                    <a href="#" data-page="predict" onclick="navigateTo('predict'); return false;">PHQ-9 Form</a>
+                    <a href="#" data-page="result" onclick="navigateTo('result'); return false;">Result</a>
+                    <a href="#" data-page="history" onclick="navigateTo('history'); return false;">History</a>
+                    <a href="#" data-page="comparison" onclick="navigateTo('comparison'); return false;">Comparison</a>
+                    <a href="#" data-page="fairness" onclick="navigateTo('fairness'); return false;">Fairness</a>
+                    <a href="#" data-page="reports" onclick="navigateTo('reports'); return false;">Reports</a>
+                    <a href="#" data-page="metrics" onclick="navigateTo('metrics'); return false;">Metrics</a>
+                    <a href="#" data-page="health" onclick="navigateTo('health'); return false;">Health</a>
                 </nav>
             </div>
         </header>
@@ -27,14 +36,17 @@
         <div class="main-container">
             <aside class="sidebar hidden-mobile">
                 <div class="sidebar-content">
-                    <h3 class="sidebar-title">Navigation</h3>
+                    <h3 class="sidebar-title">Clinic Workspace</h3>
                     <ul class="sidebar-menu">
-                        <li><a href="#" data-page="home" onclick="navigate('home'); return false;">Home</a></li>
-                        <li><a href="#" data-page="dashboard" onclick="navigate('dashboard'); return false;">Dashboard</a></li>
-                        <li><a href="#" data-page="predict" onclick="navigate('predict'); return false;">Predict</a></li>
-                        <li><a href="#" data-page="fairness" onclick="navigate('fairness'); return false;">Fairness</a></li>
-                        <li><a href="#" data-page="history" onclick="navigate('history'); return false;">History</a></li>
-                        <li><a href="#" data-page="metrics" onclick="navigate('metrics'); return false;">Metrics</a></li>
+                        <li><a href="#" data-page="dashboard" onclick="navigateTo('dashboard'); return false;">Live Dashboard</a></li>
+                        <li><a href="#" data-page="predict" onclick="navigateTo('predict'); return false;">Patient PHQ-9 Form</a></li>
+                        <li><a href="#" data-page="result" onclick="navigateTo('result'); return false;">Prediction Result</a></li>
+                        <li><a href="#" data-page="history" onclick="navigateTo('history'); return false;">Patient History</a></li>
+                        <li><a href="#" data-page="comparison" onclick="navigateTo('comparison'); return false;">Patient Comparison</a></li>
+                        <li><a href="#" data-page="fairness" onclick="navigateTo('fairness'); return false;">Fairness Analysis</a></li>
+                        <li><a href="#" data-page="reports" onclick="navigateTo('reports'); return false;">Reports</a></li>
+                        <li><a href="#" data-page="metrics" onclick="navigateTo('metrics'); return false;">Model Performance</a></li>
+                        <li><a href="#" data-page="health" onclick="navigateTo('health'); return false;">System Health</a></li>
                     </ul>
                 </div>
             </aside>

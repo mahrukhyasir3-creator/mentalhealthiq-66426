@@ -1,561 +1,418 @@
-"""
-Phase 2: Data Preprocessing Module
+"""Preprocess real NHANES demographic and PHQ-9 questionnaire data."""
 
-Loads NHANES PHQ-9 depression data, handles missing values, creates severity labels,
-encodes categorical variables, performs stratified train/test split, and saves
-processed datasets with a fitted preprocessor for inference.
+from __future__ import annotations
 
-Functions:
-    - load_raw_data: Load NHANES CSV files and merge by SEQN
-    - create_phq9_total: Calculate PHQ-9 total score
-    - create_severity_labels: Map PHQ-9 scores to depression severity levels
-    - create_age_groups: Bin continuous age into categorical groups
-    - preprocess_pipeline: Full preprocessing pipeline
-    - save_preprocessor: Serialize preprocessor with joblib
-    - load_preprocessor: Deserialize preprocessor from joblib
-"""
-
+import inspect
 import logging
 from pathlib import Path
-from typing import Tuple, Optional
+from typing import Optional, Tuple
 
+import joblib
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import StandardScaler, OneHotEncoder, LabelEncoder
 from sklearn.compose import ColumnTransformer
+from sklearn.impute import SimpleImputer
+from sklearn.model_selection import train_test_split
 from sklearn.pipeline import Pipeline
-import joblib
+from sklearn.preprocessing import OneHotEncoder, StandardScaler
 
 
-# Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RAW_DIR = PROJECT_ROOT / "data" / "raw"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+
+DEMOGRAPHIC_PATH = RAW_DIR / "demographic.csv"
+QUESTIONNAIRE_PATH = RAW_DIR / "questionnaire.csv"
+PREPROCESSOR_PATH = PROCESSED_DIR / "preprocessor.joblib"
+
+PHQ_COLUMNS = [
+    "DPQ010",
+    "DPQ020",
+    "DPQ030",
+    "DPQ040",
+    "DPQ050",
+    "DPQ060",
+    "DPQ070",
+    "DPQ080",
+    "DPQ090",
+]
+
+DEMOGRAPHIC_COLUMNS = [
+    "SEQN",
+    "RIDAGEYR",
+    "RIAGENDR",
+    "RIDRETH1",
+    "INDHHIN2",
+    "DMDEDUC2",
+    "DMDMARTL",
+]
+
+QUESTIONNAIRE_COLUMNS = ["SEQN", *PHQ_COLUMNS]
+
+NUMERIC_FEATURES = ["RIDAGEYR", *PHQ_COLUMNS]
+CATEGORICAL_FEATURES = [
+    "RIAGENDR",
+    "RIDRETH1",
+    "INDHHIN2",
+    "DMDEDUC2",
+    "DMDMARTL",
+    "AGE_GROUP",
+]
+
+FEATURE_COLUMNS = [
+    "RIDAGEYR",
+    "RIAGENDR",
+    "RIDRETH1",
+    "INDHHIN2",
+    "DMDEDUC2",
+    "DMDMARTL",
+    "AGE_GROUP",
+    *PHQ_COLUMNS,
+]
+
+TARGET_COLUMN = "SEVERITY"
+
+RAW_OUTPUT_COLUMNS = [
+    "SEQN",
+    *FEATURE_COLUMNS,
+    "PHQ9_TOTAL",
+    TARGET_COLUMN,
+]
+
+
+def _one_hot_encoder() -> OneHotEncoder:
+    """Create a dense OneHotEncoder across supported sklearn versions."""
+
+    kwargs = {"handle_unknown": "ignore"}
+    if "sparse_output" in inspect.signature(OneHotEncoder).parameters:
+        kwargs["sparse_output"] = False
+    else:
+        kwargs["sparse"] = False
+    return OneHotEncoder(**kwargs)
+
+
 class DepthPreprocessor:
-    """
-    Preprocessor for NHANES PHQ-9 depression data.
+    """Saved preprocessing wrapper used by training, fairness, and inference."""
 
-    Handles data loading, missing value imputation, feature engineering,
-    categorical encoding, numerical scaling, and dataset splitting.
-
-    Attributes:
-        preprocessor: sklearn ColumnTransformer with encoding/scaling pipeline
-        label_encoder: LabelEncoder for depression severity labels
-        phq_columns: List of PHQ-9 question column names
-        numeric_features: List of numeric feature names
-        categorical_features: List of categorical feature names
-        feature_names: Final feature names after preprocessing
-    """
-
-    def __init__(self):
-        """Initialize the preprocessor."""
-        self.preprocessor: Optional[Pipeline] = None
-        self.label_encoder: Optional[LabelEncoder] = None
-        self.phq_columns: list = [
-            'DPQ010', 'DPQ020', 'DPQ030', 'DPQ040', 'DPQ050',
-            'DPQ060', 'DPQ070', 'DPQ080', 'DPQ090'
-        ]
-        self.numeric_features: list = []
-        self.categorical_features: list = []
-        self.feature_names: list = []
+    def __init__(self) -> None:
+        self.preprocessor: Optional[ColumnTransformer] = None
+        self.numeric_features = NUMERIC_FEATURES.copy()
+        self.categorical_features = CATEGORICAL_FEATURES.copy()
+        self.feature_names: list[str] = []
         self.n_features_in_: Optional[int] = None
 
-    def fit(self, X: pd.DataFrame, y: Optional[pd.Series] = None) -> 'DepthPreprocessor':
-        """
-        Fit preprocessor on training data.
+    def fit(self, X: pd.DataFrame, y: Optional[pd.Series] = None) -> "DepthPreprocessor":
+        """Fit the sklearn ColumnTransformer on training features."""
 
-        Args:
-            X: Feature dataframe with numeric and categorical columns
-            y: Target labels (not used for fitting, for sklearn compatibility)
+        missing = [column for column in FEATURE_COLUMNS if column not in X.columns]
+        if missing:
+            raise ValueError(f"Missing feature columns for preprocessing: {missing}")
 
-        Returns:
-            self: Fitted preprocessor instance
-        """
-        logger.info("Fitting preprocessor on training data")
-
-        # Separate numeric and categorical features
-        self.numeric_features = X.select_dtypes(include=['int64', 'float64']).columns.tolist()
-        self.categorical_features = X.select_dtypes(include=['object', 'category']).columns.tolist()
-
-        logger.debug(f"Numeric features: {self.numeric_features}")
-        logger.debug(f"Categorical features: {self.categorical_features}")
-
-        # Create preprocessing pipeline
-        numeric_transformer = StandardScaler()
-        categorical_transformer = OneHotEncoder(
-            sparse_output=False,
-            handle_unknown='ignore',
-            drop='if_binary'
+        numeric_pipeline = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="median")),
+                ("scaler", StandardScaler()),
+            ]
+        )
+        categorical_pipeline = Pipeline(
+            steps=[
+                ("imputer", SimpleImputer(strategy="most_frequent")),
+                ("encoder", _one_hot_encoder()),
+            ]
         )
 
         self.preprocessor = ColumnTransformer(
             transformers=[
-                ('num', numeric_transformer, self.numeric_features),
-                ('cat', categorical_transformer, self.categorical_features)
+                ("num", numeric_pipeline, self.numeric_features),
+                ("cat", categorical_pipeline, self.categorical_features),
             ],
-            verbose=False,
-            remainder='drop'
+            remainder="drop",
         )
 
-        # Fit preprocessor
-        self.preprocessor.fit(X)
-
-        # Get feature names after transformation
+        self.preprocessor.fit(X[FEATURE_COLUMNS])
+        self.n_features_in_ = len(FEATURE_COLUMNS)
         self._set_feature_names()
-
-        self.n_features_in_ = X.shape[1]
-        logger.info(f"Preprocessor fitted. Output features: {len(self.feature_names)}")
-
+        logger.info("Preprocessor fitted with %s output features.", len(self.feature_names))
         return self
 
     def transform(self, X: pd.DataFrame) -> np.ndarray:
-        """
-        Transform data using fitted preprocessor.
+        """Transform raw feature columns into model-ready numeric features."""
 
-        Args:
-            X: Feature dataframe
-
-        Returns:
-            Transformed feature array
-        """
         if self.preprocessor is None:
-            raise ValueError("Preprocessor not fitted. Call fit() first.")
-
-        logger.debug(f"Transforming {len(X)} samples")
-        return self.preprocessor.transform(X)
+            raise ValueError("Preprocessor is not fitted.")
+        missing = [column for column in FEATURE_COLUMNS if column not in X.columns]
+        if missing:
+            raise ValueError(f"Missing feature columns for transform: {missing}")
+        return self.preprocessor.transform(X[FEATURE_COLUMNS])
 
     def fit_transform(self, X: pd.DataFrame, y: Optional[pd.Series] = None) -> np.ndarray:
-        """Fit and transform in one step."""
+        """Fit and transform feature columns."""
+
         self.fit(X, y)
         return self.transform(X)
 
     def _set_feature_names(self) -> None:
-        """Extract feature names from ColumnTransformer."""
-        feature_names = []
+        """Extract transformed feature names from the ColumnTransformer."""
 
-        # Numeric features
-        for col in self.numeric_features:
-            feature_names.append(col)
+        if self.preprocessor is None:
+            self.feature_names = []
+            return
 
-        # Categorical features (one-hot encoded)
-        cat_transformer = self.preprocessor.named_transformers_['cat']
-        cat_names = cat_transformer.get_feature_names_out(self.categorical_features)
-        feature_names.extend(cat_names)
-
-        self.feature_names = feature_names
-        logger.debug(f"Feature names set: {len(feature_names)} total")
+        try:
+            self.feature_names = self.preprocessor.get_feature_names_out().tolist()
+        except Exception:
+            cat_pipeline = self.preprocessor.named_transformers_["cat"]
+            encoder = cat_pipeline.named_steps["encoder"]
+            cat_names = encoder.get_feature_names_out(self.categorical_features).tolist()
+            self.feature_names = [*self.numeric_features, *cat_names]
 
     def save(self, filepath: Path) -> None:
-        """Save fitted preprocessor to disk."""
-        asset = {
-            'preprocessor': self.preprocessor,
-            'numeric_features': self.numeric_features,
-            'categorical_features': self.categorical_features,
-            'feature_names': self.feature_names,
-            'n_features_in_': self.n_features_in_,
-        }
-        joblib.dump(asset, filepath)
-        logger.info(f"Preprocessor saved to {filepath}")
+        """Save fitted preprocessing assets."""
+
+        filepath.parent.mkdir(parents=True, exist_ok=True)
+        joblib.dump(
+            {
+                "preprocessor": self.preprocessor,
+                "numeric_features": self.numeric_features,
+                "categorical_features": self.categorical_features,
+                "feature_names": self.feature_names,
+                "n_features_in_": self.n_features_in_,
+            },
+            filepath,
+        )
+        logger.info("Preprocessor saved to %s", filepath)
 
     @staticmethod
-    def load(filepath: Path) -> 'DepthPreprocessor':
-        """Load fitted preprocessor from disk."""
+    def load(filepath: Path) -> "DepthPreprocessor":
+        """Load fitted preprocessing assets."""
+
         asset = joblib.load(filepath)
         preprocessor = DepthPreprocessor()
-        preprocessor.preprocessor = asset['preprocessor']
-        preprocessor.numeric_features = asset.get('numeric_features', [])
-        preprocessor.categorical_features = asset.get('categorical_features', [])
-        preprocessor.feature_names = asset.get('feature_names', [])
-        preprocessor.n_features_in_ = asset.get('n_features_in_', None)
-        logger.info(f"Preprocessor loaded from {filepath}")
+        preprocessor.preprocessor = asset["preprocessor"]
+        preprocessor.numeric_features = asset.get("numeric_features", NUMERIC_FEATURES.copy())
+        preprocessor.categorical_features = asset.get("categorical_features", CATEGORICAL_FEATURES.copy())
+        preprocessor.feature_names = asset.get("feature_names", [])
+        preprocessor.n_features_in_ = asset.get("n_features_in_")
         return preprocessor
 
 
-def load_raw_data(data_path: Path) -> pd.DataFrame:
-    """
-    Load NHANES raw data.
+def validate_columns(df: pd.DataFrame, required_columns: list[str], dataset_name: str) -> None:
+    """Validate required columns are present in a dataframe."""
 
-    In production, this would load separate demographics, depression survey,
-    and education files, then merge on SEQN. For demo, loads synthetic data.
+    missing = [column for column in required_columns if column not in df.columns]
+    if missing:
+        raise ValueError(f"{dataset_name} is missing required columns: {missing}")
 
-    Args:
-        data_path: Path to raw data CSV file
 
-    Returns:
-        Merged dataframe with all NHANES columns
+def load_raw_data(
+    demographic_path: Path = DEMOGRAPHIC_PATH,
+    questionnaire_path: Path = QUESTIONNAIRE_PATH,
+) -> pd.DataFrame:
+    """Load and merge real NHANES demographic and questionnaire CSV files."""
 
-    Raises:
-        FileNotFoundError: If data file not found
-        ValueError: If SEQN column missing
-    """
-    if not data_path.exists():
-        raise FileNotFoundError(f"Data file not found: {data_path}")
+    demographic_path = Path(demographic_path)
+    questionnaire_path = Path(questionnaire_path)
 
-    logger.info(f"Loading raw data from {data_path}")
-    df = pd.read_csv(data_path)
+    if not demographic_path.exists() or not questionnaire_path.exists():
+        raise FileNotFoundError(
+            "Please place demographic.csv and questionnaire.csv inside data/raw/"
+        )
 
-    if 'SEQN' not in df.columns:
-        raise ValueError("SEQN column not found in data")
+    demographic_df = pd.read_csv(demographic_path)
+    questionnaire_df = pd.read_csv(questionnaire_path)
 
-    logger.info(f"Loaded {len(df)} records with {len(df.columns)} columns")
-    return df
+    validate_columns(demographic_df, DEMOGRAPHIC_COLUMNS, str(demographic_path))
+    validate_columns(questionnaire_df, QUESTIONNAIRE_COLUMNS, str(questionnaire_path))
+
+    merged_df = demographic_df[DEMOGRAPHIC_COLUMNS].merge(
+        questionnaire_df[QUESTIONNAIRE_COLUMNS],
+        on="SEQN",
+        how="inner",
+    )
+    logger.info("Merged raw dataset has %s rows.", len(merged_df))
+    return merged_df
+
+
+def clean_demographic_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert demographic columns to numeric values where NHANES stores codes."""
+
+    cleaned = df.copy()
+    for column in DEMOGRAPHIC_COLUMNS:
+        cleaned[column] = pd.to_numeric(cleaned[column], errors="coerce")
+    return cleaned
 
 
 def create_phq9_total(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Calculate PHQ-9 total score from individual items.
+    """Clean PHQ-9 item columns and create PHQ9_TOTAL."""
 
-    PHQ-9 total = sum of DPQ010 through DPQ090.
-    If any required item is missing, PHQ9_TOTAL = NaN.
+    validate_columns(df, PHQ_COLUMNS, "merged dataset")
+    cleaned = df.copy()
 
-    Args:
-        df: DataFrame with PHQ-9 columns
+    for column in PHQ_COLUMNS:
+        values = pd.to_numeric(cleaned[column], errors="coerce")
+        cleaned[column] = values.where(values.isin([0, 1, 2, 3]), np.nan)
 
-    Returns:
-        DataFrame with added PHQ9_TOTAL column
-    """
-    phq_columns = ['DPQ010', 'DPQ020', 'DPQ030', 'DPQ040', 'DPQ050',
-                   'DPQ060', 'DPQ070', 'DPQ080', 'DPQ090']
-
-    # Verify all PHQ columns present
-    missing_cols = [col for col in phq_columns if col not in df.columns]
-    if missing_cols:
-        raise ValueError(f"Missing PHQ-9 columns: {missing_cols}")
-
-    # Calculate total (only if at least 7 items answered)
-    phq_subset = df[phq_columns].copy()
-    valid_count = phq_subset.notna().sum(axis=1)
-
-    df_copy = df.copy()
-    df_copy['PHQ9_TOTAL'] = df_copy[phq_columns].sum(axis=1)
-    df_copy.loc[valid_count < 7, 'PHQ9_TOTAL'] = np.nan
-
-    n_valid = df_copy['PHQ9_TOTAL'].notna().sum()
-    logger.info(f"Created PHQ9_TOTAL: {n_valid} valid scores out of {len(df)}")
-
-    return df_copy
+    cleaned["PHQ9_TOTAL"] = cleaned[PHQ_COLUMNS].sum(axis=1, min_count=len(PHQ_COLUMNS))
+    logger.info("PHQ9_TOTAL created for %s complete rows.", cleaned["PHQ9_TOTAL"].notna().sum())
+    return cleaned
 
 
 def create_severity_labels(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create depression severity labels from PHQ-9 total score.
+    """Create SEVERITY labels from PHQ9_TOTAL."""
 
-    Severity levels (based on PHQ-9 score):
-        - Minimal: 0-4
-        - Mild: 5-9
-        - Moderate: 10-14
-        - Moderately Severe: 15-19
-        - Severe: 20-27
+    if "PHQ9_TOTAL" not in df.columns:
+        raise ValueError("PHQ9_TOTAL column is required before severity labeling.")
 
-    Args:
-        df: DataFrame with PHQ9_TOTAL column
-
-    Returns:
-        DataFrame with added SEVERITY label column
-    """
-    if 'PHQ9_TOTAL' not in df.columns:
-        raise ValueError("PHQ9_TOTAL column not found. Call create_phq9_total() first.")
-
-    df_copy = df.copy()
-
-    # Create severity labels using pd.cut
+    labeled = df.copy()
     bins = [-1, 4, 9, 14, 19, 27]
-    labels = ['Minimal', 'Mild', 'Moderate', 'Moderately Severe', 'Severe']
-
-    df_copy['SEVERITY'] = pd.cut(
-        df_copy['PHQ9_TOTAL'],
-        bins=bins,
-        labels=labels,
-        right=True
-    )
-
-    severity_counts = df_copy['SEVERITY'].value_counts().sort_index()
-    logger.info(f"Severity labels created:\n{severity_counts}")
-
-    return df_copy
+    labels = ["Minimal", "Mild", "Moderate", "Moderately Severe", "Severe"]
+    labeled[TARGET_COLUMN] = pd.cut(labeled["PHQ9_TOTAL"], bins=bins, labels=labels)
+    labeled[TARGET_COLUMN] = labeled[TARGET_COLUMN].astype("object")
+    return labeled
 
 
 def create_age_groups(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Create age group categories from continuous age.
+    """Create AGE_GROUP from RIDAGEYR."""
 
-    Age groups:
-        - 18-25: Young Adults
-        - 26-40: Adults
-        - 41-55: Middle-aged
-        - 56-70: Mature Adults
-        - 71+: Older Adults
+    if "RIDAGEYR" not in df.columns:
+        raise ValueError("RIDAGEYR column is required before age grouping.")
 
-    Args:
-        df: DataFrame with RIDAGEYR column
-
-    Returns:
-        DataFrame with added AGE_GROUP column
-    """
-    if 'RIDAGEYR' not in df.columns:
-        raise ValueError("RIDAGEYR column not found.")
-
-    df_copy = df.copy()
-
-    bins = [18, 25, 40, 55, 70, 100]
-    labels = ['18-25', '26-40', '41-55', '56-70', '71+']
-
-    df_copy['AGE_GROUP'] = pd.cut(
-        df_copy['RIDAGEYR'],
-        bins=bins,
-        labels=labels,
-        right=False
-    )
-
-    logger.debug(f"Age groups created:\n{df_copy['AGE_GROUP'].value_counts().sort_index()}")
-
-    return df_copy
+    grouped = df.copy()
+    age = pd.to_numeric(grouped["RIDAGEYR"], errors="coerce")
+    grouped["AGE_GROUP"] = pd.Series(index=grouped.index, dtype="object")
+    grouped.loc[age < 18, "AGE_GROUP"] = "Under 18"
+    grouped.loc[age.between(18, 29, inclusive="both"), "AGE_GROUP"] = "18-29"
+    grouped.loc[age.between(30, 44, inclusive="both"), "AGE_GROUP"] = "30-44"
+    grouped.loc[age.between(45, 59, inclusive="both"), "AGE_GROUP"] = "45-59"
+    grouped.loc[age >= 60, "AGE_GROUP"] = "60+"
+    return grouped
 
 
-def handle_missing_values(df: pd.DataFrame, strategy: str = 'drop') -> pd.DataFrame:
-    """
-    Handle missing values in the dataset.
+def handle_missing_values(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop rows with invalid PHQ-9 answers or missing target labels."""
 
-    Args:
-        df: Input dataframe
-        strategy: 'drop' to remove rows with missing values,
-                 'median' to impute numeric with median,
-                 'mode' to impute categorical with mode
-
-    Returns:
-        DataFrame with missing values handled
-
-    Raises:
-        ValueError: If unknown strategy provided
-    """
-    if strategy == 'drop':
-        n_before = len(df)
-        df_clean = df.dropna(subset=['PHQ9_TOTAL', 'SEVERITY'])
-        n_after = len(df_clean)
-        logger.info(f"Dropped {n_before - n_after} rows with missing target. Remaining: {n_after}")
-        return df_clean
-
-    elif strategy == 'median':
-        numeric_cols = df.select_dtypes(include=['float64', 'int64']).columns
-        df_copy = df.copy()
-        for col in numeric_cols:
-            if df_copy[col].isna().any():
-                median_val = df_copy[col].median()
-                df_copy[col].fillna(median_val, inplace=True)
-        logger.info(f"Missing numeric values imputed with median")
-        return df_copy
-
-    else:
-        raise ValueError(f"Unknown strategy: {strategy}")
+    before = len(df)
+    cleaned = df.dropna(subset=[*PHQ_COLUMNS, "PHQ9_TOTAL", TARGET_COLUMN]).copy()
+    logger.info("Dropped %s rows with invalid or incomplete PHQ-9 data.", before - len(cleaned))
+    return cleaned
 
 
 def select_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
-    """
-    Select features for modeling.
+    """Select final model features and target."""
 
-    Features selected:
-        - Numeric: RIDAGEYR
-        - Categorical: RIAGENDR, RIDRETH1, INDHHIN2, DMDEDUC2, DMDMARTL, AGE_GROUP
-        - PHQ-9 items: DPQ010-DPQ090
+    validate_columns(df, FEATURE_COLUMNS, "preprocessed dataset")
+    if TARGET_COLUMN not in df.columns:
+        raise ValueError(f"{TARGET_COLUMN} column is required.")
+    return df[FEATURE_COLUMNS].copy(), df[TARGET_COLUMN].astype(str).copy()
 
-    Target:
-        - SEVERITY
 
-    Args:
-        df: Preprocessed dataframe
+def validate_stratified_split(y: pd.Series, test_size: float) -> None:
+    """Validate the target distribution can support stratified splitting."""
 
-    Returns:
-        Tuple of (features DataFrame, target Series)
-    """
-    feature_cols = [
-        'RIDAGEYR',  # Age (numeric)
-        'RIAGENDR',  # Gender (categorical)
-        'RIDRETH1',  # Race/Ethnicity (categorical)
-        'INDHHIN2',  # Income (categorical)
-        'DMDEDUC2',  # Education (categorical)
-        'DMDMARTL',  # Marital Status (categorical)
-        'AGE_GROUP',  # Age group (categorical)
-        'DPQ010', 'DPQ020', 'DPQ030', 'DPQ040', 'DPQ050',
-        'DPQ060', 'DPQ070', 'DPQ080', 'DPQ090',  # PHQ-9 items (numeric)
-    ]
+    class_counts = y.value_counts()
+    if class_counts.empty:
+        raise ValueError("No target labels available for splitting.")
+    if (class_counts < 2).any():
+        raise ValueError(
+            "Each severity class needs at least two rows for stratified splitting. "
+            f"Counts: {class_counts.to_dict()}"
+        )
 
-    missing_cols = [col for col in feature_cols if col not in df.columns]
-    if missing_cols:
-        raise ValueError(f"Missing feature columns: {missing_cols}")
+    requested_test_count = int(np.ceil(len(y) * test_size))
+    if requested_test_count < len(class_counts):
+        raise ValueError(
+            "test_size is too small for stratification across all severity classes. "
+            f"Need at least {len(class_counts)} test rows."
+        )
 
-    X = df[feature_cols].copy()
-    y = df['SEVERITY'].copy()
 
-    logger.info(f"Selected {X.shape[1]} features, target has {len(y.unique())} classes")
+def _transformed_dataframe(
+    transformed: np.ndarray,
+    target: pd.Series,
+    feature_names: list[str],
+) -> pd.DataFrame:
+    """Build a CSV-ready transformed dataframe with SEVERITY appended."""
 
-    return X, y
+    transformed_df = pd.DataFrame(transformed, columns=feature_names)
+    transformed_df[TARGET_COLUMN] = target.to_numpy()
+    return transformed_df
 
 
 def preprocess_pipeline(
-    data_path: Path,
+    demographic_path: Path = DEMOGRAPHIC_PATH,
+    questionnaire_path: Path = QUESTIONNAIRE_PATH,
+    output_dir: Path = PROCESSED_DIR,
     test_size: float = 0.3,
     random_state: int = 42,
-    output_dir: Path = Path('data/processed')
 ) -> Tuple[pd.DataFrame, pd.DataFrame, pd.Series, pd.Series, DepthPreprocessor]:
-    """
-    Full preprocessing pipeline: load → clean → feature engineer → split → encode.
+    """Run real NHANES preprocessing and save model-ready artifacts."""
 
-    Steps:
-        1. Load raw NHANES data
-        2. Create PHQ9_TOTAL and SEVERITY labels
-        3. Create age groups
-        4. Handle missing values
-        5. Select features
-        6. Stratified train/test split
-        7. Fit preprocessor on training data
-        8. Transform both train and test data
-        9. Save preprocessor and datasets
-
-    Args:
-        data_path: Path to raw NHANES CSV file
-        test_size: Test set proportion (default: 0.3)
-        random_state: Random seed for reproducibility
-        output_dir: Directory to save processed data and preprocessor
-
-    Returns:
-        Tuple of (X_train, X_test, y_train, y_test, fitted_preprocessor)
-    """
+    output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
-    logger.info("=" * 70)
-    logger.info("PREPROCESSING PIPELINE START")
-    logger.info("=" * 70)
 
-    # Step 1: Load
-    logger.info("\n[STEP 1] Loading raw data...")
-    df = load_raw_data(data_path)
-
-    # Step 2: Feature engineering
-    logger.info("\n[STEP 2] Creating derived features...")
+    df = load_raw_data(demographic_path=demographic_path, questionnaire_path=questionnaire_path)
+    df = clean_demographic_columns(df)
     df = create_phq9_total(df)
     df = create_severity_labels(df)
     df = create_age_groups(df)
+    df = handle_missing_values(df)
 
-    # Step 3: Handle missing values
-    logger.info("\n[STEP 3] Handling missing values...")
-    df = handle_missing_values(df, strategy='drop')
-
-    # Step 4: Select features and target for model training
-    logger.info("\n[STEP 4] Selecting features...")
     X, y = select_features(df)
+    validate_stratified_split(y, test_size)
 
-    # Step 5: Stratified train/test split on full dataframe so we retain raw demographics
-    logger.info("\n[STEP 5] Stratified train/test split...")
-    df_train, df_test = train_test_split(
+    train_df, test_df = train_test_split(
         df,
         test_size=test_size,
         random_state=random_state,
-        stratify=y
+        stratify=y,
     )
 
-    X_train, y_train = select_features(df_train)
-    X_test, y_test = select_features(df_test)
+    X_train, y_train = select_features(train_df)
+    X_test, y_test = select_features(test_df)
 
-    logger.info(f"Train set: {len(X_train)} samples, Test set: {len(X_test)} samples")
-    logger.info(f"Train class distribution:\n{y_train.value_counts()}")
-    logger.info(f"Test class distribution:\n{y_test.value_counts()}")
-
-    # Step 6: Fit preprocessor on training data
-    logger.info("\n[STEP 6] Fitting preprocessor...")
     preprocessor = DepthPreprocessor()
-    preprocessor.fit(X_train)
-
-    # Step 7: Transform both splits
-    logger.info("\n[STEP 7] Transforming data...")
-    X_train_transformed = preprocessor.transform(X_train)
+    X_train_transformed = preprocessor.fit_transform(X_train, y_train)
     X_test_transformed = preprocessor.transform(X_test)
 
-    # Step 8: Save
-    logger.info("\n[STEP 8] Saving processed data...")
-    train_path = output_dir / 'train.csv'
-    test_path = output_dir / 'test.csv'
-    train_raw_path = output_dir / 'train_raw.csv'
-    test_raw_path = output_dir / 'test_raw.csv'
-    preprocessor_path = output_dir / 'preprocessor.joblib'
-
-    # Save transformed dataframes for inspection
-    train_df = pd.DataFrame(
+    train_transformed_df = _transformed_dataframe(
         X_train_transformed,
-        columns=preprocessor.feature_names
+        y_train,
+        preprocessor.feature_names,
     )
-    train_df['SEVERITY'] = y_train.values
-    train_df.to_csv(train_path, index=False)
-
-    test_df = pd.DataFrame(
+    test_transformed_df = _transformed_dataframe(
         X_test_transformed,
-        columns=preprocessor.feature_names
+        y_test,
+        preprocessor.feature_names,
     )
-    test_df['SEVERITY'] = y_test.values
-    test_df.to_csv(test_path, index=False)
 
-    # Save raw train/test sets for fairness and tracing
-    raw_cols = ['SEQN'] if 'SEQN' in df.columns else []
-    raw_train_df = df_train[raw_cols + [
-        'RIDAGEYR', 'RIAGENDR', 'RIDRETH1', 'INDHHIN2', 'DMDEDUC2',
-        'DMDMARTL', 'AGE_GROUP', 'DPQ010', 'DPQ020', 'DPQ030', 'DPQ040',
-        'DPQ050', 'DPQ060', 'DPQ070', 'DPQ080', 'DPQ090', 'SEVERITY'
-    ]].copy()
-    raw_test_df = df_test[raw_cols + [
-        'RIDAGEYR', 'RIAGENDR', 'RIDRETH1', 'INDHHIN2', 'DMDEDUC2',
-        'DMDMARTL', 'AGE_GROUP', 'DPQ010', 'DPQ020', 'DPQ030', 'DPQ040',
-        'DPQ050', 'DPQ060', 'DPQ070', 'DPQ080', 'DPQ090', 'SEVERITY'
-    ]].copy()
-    raw_train_df.to_csv(train_raw_path, index=False)
-    raw_test_df.to_csv(test_raw_path, index=False)
+    train_transformed_df.to_csv(output_dir / "train.csv", index=False)
+    test_transformed_df.to_csv(output_dir / "test.csv", index=False)
+    train_df[RAW_OUTPUT_COLUMNS].to_csv(output_dir / "train_raw.csv", index=False)
+    test_df[RAW_OUTPUT_COLUMNS].to_csv(output_dir / "test_raw.csv", index=False)
+    preprocessor.save(output_dir / "preprocessor.joblib")
 
-    # Save preprocessor
-    preprocessor.save(preprocessor_path)
-
-    logger.info(f"✓ Train set: {train_path} ({train_df.shape})")
-    logger.info(f"✓ Test set: {test_path} ({test_df.shape})")
-    logger.info(f"✓ Raw train set: {train_raw_path} ({raw_train_df.shape})")
-    logger.info(f"✓ Raw test set: {test_raw_path} ({raw_test_df.shape})")
-    logger.info(f"✓ Preprocessor: {preprocessor_path}")
-
-    logger.info("\n" + "=" * 70)
-    logger.info("PREPROCESSING COMPLETE")
-    logger.info("=" * 70)
-    logger.info(f"Features: {len(preprocessor.feature_names)}")
-    logger.info(f"Train shape: {X_train_transformed.shape}")
-    logger.info(f"Test shape: {X_test_transformed.shape}")
-
+    logger.info("Saved processed artifacts to %s", output_dir)
     return X_train, X_test, y_train, y_test, preprocessor
 
 
-def main():
-    """Run preprocessing pipeline."""
-    import sys
+def main() -> int:
+    """Run preprocessing from the command line."""
 
     try:
-        data_path = Path('data/sample_synthetic_nhanes.csv')
-        output_dir = Path('data/processed')
-
-        X_train, X_test, y_train, y_test, preprocessor = preprocess_pipeline(
-            data_path=data_path,
-            test_size=0.3,
-            random_state=42,
-            output_dir=output_dir
-        )
-
-        print("\n" + "=" * 70)
-        print("NEXT STEP: Phase 3 - Modeling (model.py)")
-        print("=" * 70)
-
+        preprocess_pipeline()
+        print("Preprocessing complete. Next: python -m mentalhealthiq.model")
         return 0
-
-    except Exception as e:
-        logger.error(f"Pipeline failed: {e}", exc_info=True)
+    except Exception as exc:
+        logger.error("Preprocessing failed: %s", exc, exc_info=True)
         return 1
 
 
-if __name__ == '__main__':
-    exit(main())
+if __name__ == "__main__":
+    raise SystemExit(main())
