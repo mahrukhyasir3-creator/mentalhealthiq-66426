@@ -279,6 +279,53 @@ svg {
     padding: 1.35rem;
 }
 
+.dashboard-card,
+.performance-card {
+    min-width: 0;
+    padding: 1.25rem;
+    border: 1px solid rgba(220, 229, 223, 0.95);
+    border-radius: 22px;
+    background: linear-gradient(180deg, #ffffff, #fbfcf8);
+    box-shadow: 0 12px 32px rgba(23, 33, 29, 0.065);
+}
+
+.card-header {
+    min-width: 0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 1rem;
+    margin-bottom: 1rem;
+}
+
+.card-title {
+    color: var(--text);
+    font-size: 1.15rem;
+    line-height: 1.25;
+    font-weight: 950;
+}
+
+.card-subtitle {
+    margin: 0.25rem 0 0;
+    color: var(--muted);
+    font-size: 0.94rem;
+}
+
+.status-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 30px;
+    border: 1px solid #b9e4d7;
+    border-radius: 999px;
+    padding: 0.34rem 0.72rem;
+    background: #e7f5f0;
+    color: var(--primary-dark);
+    font-size: 0.82rem;
+    font-weight: 950;
+    white-space: nowrap;
+}
+
 .soft-card {
     min-width: 0;
     padding: 1.15rem;
@@ -315,6 +362,12 @@ svg {
 
 .metrics-grid {
     grid-template-columns: repeat(auto-fit, minmax(165px, 1fr));
+}
+
+.metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(185px, 1fr));
+    gap: 1rem;
 }
 
 .stat-card {
@@ -498,6 +551,136 @@ svg {
     color: var(--muted);
     font-size: 0.9rem;
     line-height: 1.35;
+}
+
+.performance-shell {
+    display: grid;
+    gap: 1.05rem;
+}
+
+.performance-card {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.performance-metric-card {
+    min-height: 136px;
+    box-shadow: none;
+    background: #ffffff;
+}
+
+.metrics-header {
+    align-items: center;
+}
+
+.metrics-summary-card {
+    position: relative;
+    justify-content: start;
+    gap: 0.65rem;
+    padding: 1rem;
+    border-color: rgba(20, 125, 103, 0.12);
+    border-radius: 18px;
+    box-shadow: 0 8px 22px rgba(23, 33, 29, 0.045);
+}
+
+.metrics-summary-card::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 4px;
+    border-radius: 18px 0 0 18px;
+    background: var(--primary);
+    opacity: 0.72;
+}
+
+.metric-card-label {
+    color: var(--muted);
+    font-size: 0.72rem;
+    font-weight: 950;
+    letter-spacing: 0.075em;
+    line-height: 1.25;
+    text-transform: uppercase;
+}
+
+.metric-card-value {
+    min-width: 0;
+    color: var(--text);
+    font-weight: 950;
+    letter-spacing: 0;
+}
+
+.metric-number-value {
+    font-size: clamp(1.85rem, 3vw, 2.35rem);
+    line-height: 1;
+    white-space: nowrap;
+}
+
+.model-name-value {
+    font-size: clamp(1.2rem, 2vw, 1.52rem);
+    line-height: 1.18;
+    word-break: normal;
+    overflow-wrap: normal;
+    white-space: normal;
+    hyphens: none;
+}
+
+.metric-card-help {
+    margin-top: auto;
+    color: var(--muted);
+    font-size: 0.86rem;
+    line-height: 1.35;
+}
+
+.model-status-badge {
+    max-width: min(260px, 100%);
+    white-space: normal;
+    text-align: center;
+    line-height: 1.2;
+}
+
+.metrics-table-card {
+    gap: 0.75rem;
+}
+
+.metrics-table-wrap {
+    width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    background: #ffffff;
+    -webkit-overflow-scrolling: touch;
+}
+
+.metrics-table {
+    min-width: 560px;
+    border-collapse: separate;
+    border-spacing: 0;
+}
+
+.metrics-table th,
+.metrics-table td {
+    padding: 0.78rem 0.9rem;
+    border-bottom: 1px solid var(--border);
+    overflow-wrap: normal;
+    word-break: normal;
+    white-space: nowrap;
+}
+
+.metrics-table thead th {
+    position: sticky;
+    top: 0;
+    z-index: 1;
+    background: #f7faf7;
+    color: #41504a;
+}
+
+.metrics-table tbody tr:nth-child(even) {
+    background: #fbfcf8;
+}
+
+.metrics-table tbody tr:last-child th,
+.metrics-table tbody tr:last-child td {
+    border-bottom: 0;
 }
 
 .dashboard-empty-state {
@@ -1041,6 +1224,55 @@ td {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
     gap: 0.75rem;
+    margin: 1rem 0;
+}
+
+.polished-report-card {
+    display: grid;
+    gap: 1rem;
+    border-color: rgba(20, 125, 103, 0.14);
+    box-shadow: 0 18px 46px rgba(23, 33, 29, 0.07);
+}
+
+.report-selector-card {
+    margin-bottom: 1rem;
+}
+
+.report-document-header {
+    padding-bottom: 1rem;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 0;
+}
+
+.report-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 0.85rem;
+}
+
+.report-summary-card {
+    min-width: 0;
+    padding: 1rem;
+    border: 1px solid rgba(220, 229, 223, 0.95);
+    border-radius: 18px;
+    background: #ffffff;
+    box-shadow: 0 8px 22px rgba(23, 33, 29, 0.045);
+}
+
+.report-summary-card .metric-value {
+    margin-top: 0.45rem;
+    font-size: clamp(1.15rem, 2vw, 1.45rem);
+    line-height: 1.22;
+}
+
+.report-notes-card {
+    box-shadow: none;
+}
+
+.report-empty-state {
+    min-height: 180px;
+    display: grid;
+    place-items: center;
 }
 
 @media (max-width: 1120px) {
@@ -1063,6 +1295,10 @@ td {
     }
 
     .dashboard-header-card {
+        display: grid;
+    }
+
+    .card-header {
         display: grid;
     }
 
@@ -1165,7 +1401,9 @@ td {
     }
 
     .dashboard-grid,
-    .dashboard-chart-grid {
+    .dashboard-chart-grid,
+    .metric-grid,
+    .report-summary-grid {
         grid-template-columns: 1fr;
     }
 
@@ -1176,6 +1414,12 @@ td {
 
     .chart-card {
         min-height: 330px;
+        border-radius: 18px;
+    }
+
+    .dashboard-card,
+    .performance-card {
+        padding: 1rem;
         border-radius: 18px;
     }
 
@@ -1231,7 +1475,10 @@ td {
     .report-card,
     .card,
     .form-card,
-    .stat-card {
+    .stat-card,
+    .dashboard-card,
+    .performance-card,
+    .report-summary-card {
         box-shadow: none;
         border-color: #d6d6d6;
     }

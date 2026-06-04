@@ -1290,14 +1290,21 @@ function renderReportsPage(page) {
     `;
     page.innerHTML = `
         ${pageHeader('Printable report', 'Patient Report', 'Print or save the current prediction report from the browser.', actions)}
-        <div class="card no-print" style="margin-bottom:1rem;">
+        <div class="dashboard-card no-print report-selector-card">
+            <div class="card-header">
+                <div>
+                    <div class="card-title">Saved patient report</div>
+                    <p class="card-subtitle">Search saved patients and load the latest visit into a printable report.</p>
+                </div>
+                <span class="status-badge">Report Builder</span>
+            </div>
             <div class="form-grid">
                 ${patientSearchField('Patient', 'reportPatientSearch', 'reportPatientsList')}
                 <div class="form-group"><label>&nbsp;</label><button id="loadReportPatientBtn" class="btn btn-primary" onclick="loadReportForSelectedPatient()" disabled>Load Latest Report</button></div>
             </div>
             <div id="reportPatientStatus" style="margin-top:1rem;"></div>
         </div>
-        <div id="report-content">${state.lastResult ? renderPrintableReport() : '<div class="empty-state">No report available. Submit a PHQ-9 form or open a saved history record first.</div>'}</div>
+        <div id="report-content">${state.lastResult ? renderPrintableReport() : '<div class="empty-state report-empty-state"><strong>No report selected.</strong><br>Select a patient to generate report, or submit a PHQ-9 form first.</div>'}</div>
     `;
     loadReportPatients();
 }
@@ -1358,22 +1365,52 @@ function printReport() {
 function renderPrintableReport() {
     const result = state.lastResult;
     const payload = state.lastPayload || result.input_data || {};
+    const severity = result.predicted_severity || result.severity || 'Unknown';
+    const riskBand = result.risk_band || getRiskBandFromSeverity(severity);
+    const riskValue = `${Math.round(Number(result.risk_percentage ?? result.risk_score * 100) || 0)}%`;
+    const generatedAt = formatCompactDateTime(result.timestamp || new Date().toISOString());
     return `
-        <article class="report-card report-page">
-            <h1>MentalHealthIQ Patient Report</h1>
-            <p class="section-note">PHQ-9 Depression Severity Screening</p>
-            <div class="report-meta" style="margin:1rem 0;">
-                ${statCard('Patient name', result.patient_name || payload.patient_name || 'Unnamed')}
-                ${statCard('Patient ID', result.patient_id || payload.patient_id || 'No ID')}
-                ${statCard('Visit date', result.visit_date || payload.visit_date || '-')}
-                ${statCard('Visit time', result.visit_time || payload.visit_time || '-')}
+        <article class="report-card report-page polished-report-card">
+            <div class="card-header report-document-header">
+                <div>
+                    <div class="card-title">MentalHealthIQ Patient Report</div>
+                    <p class="card-subtitle">PHQ-9 Depression Severity Screening</p>
+                </div>
+                <span class="status-badge">${escapeHtml(riskBand)} risk</span>
+            </div>
+            <div class="report-meta">
+                ${reportSummaryCard('Patient name', result.patient_name || payload.patient_name || 'Unnamed')}
+                ${reportSummaryCard('Patient ID', result.patient_id || payload.patient_id || 'No ID')}
+                ${reportSummaryCard('Visit date', result.visit_date || payload.visit_date || '-')}
+                ${reportSummaryCard('Generated', generatedAt)}
+            </div>
+            <div class="report-summary-grid">
+                ${reportSummaryCard('Severity', severity, 'Model classification')}
+                ${reportSummaryCard('Risk percentage', riskValue, riskBand)}
+                ${reportSummaryCard('PHQ-9 total', `${result.phq9_total}/27`, 'Screening score')}
+                ${reportSummaryCard('Recommendation', result.recommendation || recommendationForSeverity(severity), 'Doctor next step')}
             </div>
             ${renderPredictionResult(result)}
-            <div class="card" style="box-shadow:none; margin-top:1rem;">
-                <h2 class="section-title">Doctor notes</h2>
+            <div class="dashboard-card report-notes-card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Doctor notes</div>
+                        <p class="card-subtitle">Context saved with this screening.</p>
+                    </div>
+                </div>
                 <p>${escapeHtml(result.doctor_notes || payload.doctor_notes || 'No notes added.')}</p>
             </div>
         </article>
+    `;
+}
+
+function reportSummaryCard(label, value, helper = '') {
+    return `
+        <div class="report-summary-card">
+            <div class="metric-label">${escapeHtml(label)}</div>
+            <div class="metric-value">${escapeHtml(value ?? 'N/A')}</div>
+            ${helper ? `<div class="metric-helper">${escapeHtml(helper)}</div>` : ''}
+        </div>
     `;
 }
 
@@ -1391,30 +1428,61 @@ async function loadMetrics() {
         const data = await apiCall('/metrics');
         const metrics = data.metrics || {};
         const target = document.getElementById('metrics-content');
-        target.className = '';
+        target.className = 'performance-shell';
         target.innerHTML = `
-            <div class="metrics-grid">
-                ${statCard('Best model', metrics.best_model_name || 'N/A')}
-                ${statCard('Accuracy', decimal(metrics.accuracy))}
-                ${statCard('Precision', decimal(metrics.precision))}
-                ${statCard('Recall', decimal(metrics.recall))}
-                ${statCard('F1 score', decimal(metrics.f1))}
+            <div class="performance-card">
+                <div class="card-header metrics-header">
+                    <div>
+                        <div class="card-title">Model performance summary</div>
+                        <p class="card-subtitle">Weighted evaluation metrics from the saved test set.</p>
+                    </div>
+                    <span class="status-badge model-status-badge">${escapeHtml(metrics.best_model_name || 'Model')}</span>
+                </div>
+                <div class="metric-grid">
+                    ${performanceMetricCard('Best model', metrics.best_model_name || 'N/A', 'Selected by weighted F1', 'model')}
+                    ${performanceMetricCard('Accuracy', decimal(metrics.accuracy), 'Overall share of correct predictions', 'numeric')}
+                    ${performanceMetricCard('Precision', decimal(metrics.precision), 'How often predicted classes are correct', 'numeric')}
+                    ${performanceMetricCard('Recall', decimal(metrics.recall), 'How often actual classes are found', 'numeric')}
+                    ${performanceMetricCard('F1 score', decimal(metrics.f1), 'Balance of precision and recall', 'numeric')}
+                    ${performanceMetricCard('Test size', metrics.test_size ?? 'N/A', 'Held-out evaluation rows', 'numeric')}
+                </div>
             </div>
-            <div class="card" style="margin-top:1rem;">
-                <h2 class="section-title">Confusion matrix</h2>
+            <div class="performance-card metrics-table-card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Confusion matrix</div>
+                        <p class="card-subtitle">Rows are actual classes; columns are predicted classes.</p>
+                    </div>
+                </div>
                 ${renderMatrix(metrics.confusion_matrix || data.confusion_matrix)}
             </div>
-            <div class="card" style="margin-top:1rem;">
-                <h2 class="section-title">Classification report</h2>
+            <div class="performance-card metrics-table-card">
+                <div class="card-header">
+                    <div>
+                        <div class="card-title">Classification report</div>
+                        <p class="card-subtitle">Per-class precision, recall, F1, and support.</p>
+                    </div>
+                </div>
                 ${renderClassificationReport(metrics.classification_report)}
             </div>
         `;
     } catch (error) {
-        showError('metrics-content', `Model metrics not generated yet. Run python scripts/bootstrap_ml.py. Details: ${error.message}`);
+        showError('metrics-content', `Model metrics are not available yet. Run bootstrap first. Details: ${error.message}`);
     }
 }
 
 const loadMetricsData = loadMetrics;
+
+function performanceMetricCard(label, value, helper = '', valueType = 'numeric') {
+    const valueClass = valueType === 'model' ? 'model-name-value' : 'metric-number-value';
+    return `
+        <div class="metric-card performance-metric-card metrics-summary-card">
+            <div class="metric-card-label">${escapeHtml(label)}</div>
+            <div class="metric-card-value ${valueClass}">${escapeHtml(value ?? 'N/A')}</div>
+            ${helper ? `<div class="metric-card-help">${escapeHtml(helper)}</div>` : ''}
+        </div>
+    `;
+}
 
 function renderHealthPage(page) {
     page.innerHTML = `
@@ -1653,7 +1721,10 @@ function renderMatrix(matrix) {
     if (!Array.isArray(matrix) || !matrix.length) {
         return '<div class="empty-state">Confusion matrix not available.</div>';
     }
-    return `<div class="table-wrap"><table><tbody>${matrix.map((row, index) => `<tr><th>Actual ${index}</th>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody></table></div>`;
+    const columnCount = Math.max(...matrix.map(row => Array.isArray(row) ? row.length : 0));
+    const header = `<thead><tr><th>Actual \\ Predicted</th>${Array.from({ length: columnCount }, (_, index) => `<th>Pred ${index}</th>`).join('')}</tr></thead>`;
+    const body = matrix.map((row, index) => `<tr><th>Actual ${index}</th>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('');
+    return `<div class="metrics-table-wrap"><table class="metrics-table">${header}<tbody>${body}</tbody></table></div>`;
 }
 
 function renderClassificationReport(report) {
@@ -1664,7 +1735,7 @@ function renderClassificationReport(report) {
         .filter(([, value]) => value && typeof value === 'object')
         .map(([label, value]) => `<tr><td>${escapeHtml(label)}</td><td>${decimal(value.precision)}</td><td>${decimal(value.recall)}</td><td>${decimal(value['f1-score'])}</td><td>${value.support ?? '-'}</td></tr>`)
         .join('');
-    return `<div class="table-wrap"><table><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div class="metrics-table-wrap"><table class="metrics-table"><thead><tr><th>Class</th><th>Precision</th><th>Recall</th><th>F1</th><th>Support</th></tr></thead><tbody>${rows}</tbody></table></div>`;
 }
 
 function recommendationForSeverity(severity) {
