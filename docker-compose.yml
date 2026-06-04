@@ -21,5 +21,35 @@ services:
     depends_on:
       - mongodb
 
+  api:
+    build: .
+    container_name: mentalhealthiq-api
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      MONGODB_URI: mongodb://mongodb:27017
+      MONGODB_DATABASE: mentalhealthiq
+      MONGODB_COLLECTION: predictions
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - mongodb
+
+  frontend:
+    image: python:3.13-slim
+    container_name: mentalhealthiq-frontend
+    restart: unless-stopped
+    working_dir: /app
+    command: python -m http.server 5500 -d frontend
+    ports:
+      - "5500:5500"
+    volumes:
+      - ./frontend:/app/frontend:ro
+    depends_on:
+      - api
+
 volumes:
   mentalhealthiq_mongo_data:
