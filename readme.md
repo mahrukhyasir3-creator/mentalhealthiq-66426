@@ -51,6 +51,8 @@ docker compose up --build
 
 The API container uses `mongodb://mongodb:27017` internally. For predictions to work, model artifacts must exist in `data/`; run `.\scripts\bootstrap.ps1` first when starting from raw CSVs only.
 
+The repository may include a small generated `data/models/model.joblib` so the API can start with an existing demo model. Re-run bootstrap whenever raw data changes or artifacts are missing.
+
 ### Linux/macOS Helpers
 
 ```bash

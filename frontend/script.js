@@ -29,6 +29,7 @@ const state = {
     fairnessReport: [],
     fairnessSummary: null,
     patientOptions: [],
+    comparisonPatients: [],
     filteredHistory: [],
     lastPayload: readStorage('mhiq_last_payload'),
     lastResult: readStorage('mhiq_last_result')
@@ -463,9 +464,10 @@ async function loadPatientOptions() {
     if (!dataList) return;
 
     try {
-        const records = await apiCall('/predictions?limit=500').catch(() => []);
+        const response = await apiCall('/predictions?limit=500').catch(() => []);
+        const records = predictionRecordsFromResponse(response);
         const byPatient = new Map();
-        (Array.isArray(records) ? records : []).forEach(record => {
+        records.forEach(record => {
             const patientId = record.patient_id || record.input_data?.patient_id;
             if (!patientId || byPatient.has(patientId)) return;
             byPatient.set(patientId, record);
@@ -479,6 +481,30 @@ async function loadPatientOptions() {
     } catch {
         state.patientOptions = [];
     }
+}
+
+function predictionRecordsFromResponse(response) {
+    if (Array.isArray(response)) return response;
+    if (Array.isArray(response?.predictions)) return response.predictions;
+    if (Array.isArray(response?.data)) return response.data;
+    if (Array.isArray(response?.items)) return response.items;
+    return [];
+}
+
+function uniquePatientsFromPredictions(records) {
+    const byPatient = new Map();
+    records.forEach(record => {
+        const patientId = String(record.patient_id || record.input_data?.patient_id || '').trim();
+        if (!patientId || byPatient.has(patientId)) return;
+
+        const patientName = String(record.patient_name || record.input_data?.patient_name || '').trim();
+        byPatient.set(patientId, {
+            patient_id: patientId,
+            patient_name: patientName,
+            label: patientName ? `${patientName} - ${patientId}` : patientId
+        });
+    });
+    return [...byPatient.values()].sort((a, b) => a.label.localeCompare(b.label));
 }
 
 function applySelectedPatient() {
@@ -997,19 +1023,68 @@ function renderComparisonPage(page) {
         ${pageHeader('Patient trend', 'Patient Comparison', 'Compare the current/latest saved visit with the previous saved visit for a patient.')}
         <div class="card">
             <div class="form-grid">
-                ${inputField('Patient ID', 'comparePatientId', 'text', state.lastPayload?.patient_id || '', 'required')}
-                <div class="form-group"><label>&nbsp;</label><button class="btn btn-primary" onclick="loadPatientComparison()">Compare Patient Visits</button></div>
+                <div class="form-group">
+                    <label for="comparisonPatientSelect">Patient</label>
+                    <select id="comparisonPatientSelect" required>
+                        <option value="">Select a patient</option>
+                    </select>
+                </div>
+                <div class="form-group"><label>&nbsp;</label><button id="comparePatientBtn" class="btn btn-primary" onclick="loadPatientComparison()" disabled>Compare Patient Visits</button></div>
             </div>
+            <div id="comparisonStatus" style="margin-top:1rem;"></div>
         </div>
         <div id="comparison-content" style="margin-top:1rem;"></div>
     `;
-    showEmpty('comparison-content', 'Enter a patient ID to compare previous and current visits.');
+    showEmpty('comparison-content', 'Select a patient to compare previous and current visits.');
+    loadComparisonPatients();
+}
+
+async function loadComparisonPatients() {
+    const select = document.getElementById('comparisonPatientSelect');
+    const button = document.getElementById('comparePatientBtn');
+    const status = document.getElementById('comparisonStatus');
+    if (!select || !button || !status) return;
+
+    button.disabled = true;
+    showLoading(status, 'Loading saved patients...');
+
+    try {
+        const response = await apiCall('/predictions?limit=500');
+        const records = predictionRecordsFromResponse(response);
+        const patients = uniquePatientsFromPredictions(records);
+        state.comparisonPatients = patients;
+
+        select.innerHTML = [
+            '<option value="">Select a patient</option>',
+            ...patients.map(patient => `<option value="${escapeHtml(patient.patient_id)}">${escapeHtml(patient.label)}</option>`)
+        ].join('');
+
+        const lastPatientId = state.lastPayload?.patient_id || state.lastResult?.patient_id || '';
+        if (lastPatientId && patients.some(patient => patient.patient_id === lastPatientId)) {
+            select.value = lastPatientId;
+        }
+
+        if (!patients.length) {
+            showEmpty(status, 'No saved patients found. Use Predict & Save first.');
+            showEmpty('comparison-content', 'No saved patients found. Use Predict & Save first.');
+            return;
+        }
+
+        button.disabled = false;
+        status.className = 'success';
+        status.innerHTML = `Loaded ${patients.length} saved patient${patients.length === 1 ? '' : 's'}.`;
+    } catch (error) {
+        state.comparisonPatients = [];
+        select.innerHTML = '<option value="">Select a patient</option>';
+        showError(status, `Could not load saved patients. Make sure the API and MongoDB are available. Details: ${error.message}`);
+        showEmpty('comparison-content', 'Saved patients are unavailable right now.');
+    }
 }
 
 async function loadPatientComparison() {
-    const patientId = valueOf('comparePatientId');
+    const patientId = valueOf('comparisonPatientSelect');
     if (!patientId) {
-        showError('comparison-content', 'Patient ID is required.');
+        showError('comparison-content', 'Select a patient first.');
         return;
     }
     showLoading('comparison-content', 'Loading patient comparison...');
