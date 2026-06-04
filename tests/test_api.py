@@ -92,6 +92,58 @@ def test_predict_endpoint_uses_temp_artifacts(
     assert json_data["predictions_saved"] is False
 
 
+def test_predict_auto_assigns_patient_id(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(api, "MODEL_PATH", ml_artifacts["model_path"])
+    monkeypatch.setattr(api, "PREPROCESSOR_PATH", ml_artifacts["preprocessor_path"])
+    api.app.state.inference = None
+
+    payload = _sample_prediction_payload(ml_artifacts["test_raw_path"])
+    payload["patient_name"] = "Ayesha Khan"
+
+    with TestClient(api.app) as client:
+        first_response = client.post("/predict", json=payload)
+        second_response = client.post("/predict", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    first_json = first_response.json()
+    second_json = second_response.json()
+    assert first_json["patient_id"].startswith("MHQ-AYESHA-KHAN-")
+    assert first_json["patient_id"] == second_json["patient_id"]
+
+
+def test_predict_and_save_uses_auto_patient_id_for_history(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    saved_documents = []
+
+    def fake_save_prediction(document: dict) -> str:
+        saved_documents.append(document)
+        return f"saved-{len(saved_documents)}"
+
+    monkeypatch.setattr(api, "MODEL_PATH", ml_artifacts["model_path"])
+    monkeypatch.setattr(api, "PREPROCESSOR_PATH", ml_artifacts["preprocessor_path"])
+    monkeypatch.setattr(api.mongo_db, "save_prediction", fake_save_prediction)
+    api.app.state.inference = None
+
+    payload = _sample_prediction_payload(ml_artifacts["test_raw_path"])
+    payload["patient_name"] = "Bilal Ahmed"
+
+    with TestClient(api.app) as client:
+        first_response = client.post("/predict-and-save", json=payload)
+        second_response = client.post("/predict-and-save", json=payload)
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert len(saved_documents) == 2
+    assert saved_documents[0]["patient_id"] == saved_documents[1]["patient_id"]
+    assert saved_documents[0]["input_data"]["patient_id"] == saved_documents[0]["patient_id"]
+
+
 def test_predict_and_save_returns_clear_error_when_mongodb_unavailable(
     ml_artifacts: dict[str, Path],
     monkeypatch: pytest.MonkeyPatch,

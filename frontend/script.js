@@ -28,6 +28,7 @@ const state = {
     history: [],
     fairnessReport: [],
     fairnessSummary: null,
+    patientOptions: [],
     filteredHistory: [],
     lastPayload: readStorage('mhiq_last_payload'),
     lastResult: readStorage('mhiq_last_result')
@@ -286,7 +287,7 @@ function renderPredictPage(page) {
             <h2 class="section-title">Patient details</h2>
             <p class="section-note">These fields make reports, saved history, and patient comparison easier for clinic staff.</p>
             <div class="form-grid">
-                ${inputField('Patient ID', 'patient_id', 'text', '', 'required')}
+                ${patientIdField()}
                 ${inputField('Patient Name', 'patient_name', 'text', '', 'required')}
                 ${inputField('Age', 'RIDAGEYR', 'number', '35', 'required min="0" max="120"')}
                 ${selectField('Gender', 'RIAGENDR', [['1', 'Male'], ['2', 'Female']], '2')}
@@ -335,6 +336,10 @@ function renderPredictPage(page) {
 
     const form = document.getElementById('prediction-form');
     form.addEventListener('input', calculateLocalPreview);
+    form.addEventListener('change', event => {
+        if (event.target?.id === 'patient_id') applySelectedPatient();
+    });
+    loadPatientOptions();
     calculateLocalPreview();
 }
 
@@ -345,6 +350,20 @@ function stepper(activeStep) {
 
 function inputField(label, name, type, value = '', attrs = '') {
     return `<div class="form-group"><label for="${name}">${label}</label><input id="${name}" name="${name}" type="${type}" value="${escapeHtml(value)}" ${attrs}></div>`;
+}
+
+function patientIdField() {
+    return `
+        <div class="form-group">
+            <label for="patient_id">Patient ID</label>
+            <div class="input-action-row">
+                <input id="patient_id" name="patient_id" type="text" list="patient-options" placeholder="Auto assigned if empty">
+                <button class="btn btn-secondary" type="button" onclick="assignPatientId()">Auto ID</button>
+            </div>
+            <datalist id="patient-options"></datalist>
+            <small class="field-help">Use an existing ID to add another visit to that patient's history.</small>
+        </div>
+    `;
 }
 
 function selectField(label, name, options, selected = '') {
@@ -400,6 +419,89 @@ function deriveAgeGroup(age) {
     return '60+';
 }
 
+function stablePatientHash(value) {
+    let hash = 0;
+    String(value).split('').forEach(character => {
+        hash = ((hash << 5) - hash + character.charCodeAt(0)) >>> 0;
+    });
+    return hash.toString(36).toUpperCase().padStart(6, '0').slice(-6);
+}
+
+function generatePatientIdFromValues(name, age, gender) {
+    const slug = String(name || 'Patient')
+        .trim()
+        .replace(/[^A-Za-z0-9]+/g, '-')
+        .replace(/^-+|-+$/g, '')
+        .toUpperCase()
+        .slice(0, 18) || 'PATIENT';
+    return `MHQ-${slug}-${stablePatientHash(`${slug}|${Number(age) || 0}|${Number(gender) || 0}`)}`;
+}
+
+function generatePatientIdFromForm() {
+    return generatePatientIdFromValues(
+        valueOf('patient_name'),
+        valueOf('RIDAGEYR'),
+        valueOf('RIAGENDR')
+    );
+}
+
+function assignPatientId() {
+    const patientIdInput = document.getElementById('patient_id');
+    if (!patientIdInput) return '';
+    patientIdInput.value = generatePatientIdFromForm();
+    const message = document.getElementById('form-message');
+    if (message) {
+        message.className = 'success';
+        message.innerHTML = `Patient ID assigned: <strong>${escapeHtml(patientIdInput.value)}</strong>`;
+    }
+    calculateLocalPreview();
+    return patientIdInput.value;
+}
+
+async function loadPatientOptions() {
+    const dataList = document.getElementById('patient-options');
+    if (!dataList) return;
+
+    try {
+        const records = await apiCall('/predictions?limit=500').catch(() => []);
+        const byPatient = new Map();
+        (Array.isArray(records) ? records : []).forEach(record => {
+            const patientId = record.patient_id || record.input_data?.patient_id;
+            if (!patientId || byPatient.has(patientId)) return;
+            byPatient.set(patientId, record);
+        });
+        state.patientOptions = [...byPatient.values()];
+        dataList.innerHTML = state.patientOptions.map(record => {
+            const patientId = record.patient_id || record.input_data?.patient_id;
+            const patientName = record.patient_name || record.input_data?.patient_name || 'Unnamed patient';
+            return `<option value="${escapeHtml(patientId)}" label="${escapeHtml(patientName)}"></option>`;
+        }).join('');
+    } catch {
+        state.patientOptions = [];
+    }
+}
+
+function applySelectedPatient() {
+    const patientId = valueOf('patient_id');
+    if (!patientId) return;
+
+    const selected = state.patientOptions.find(record => {
+        const recordId = record.patient_id || record.input_data?.patient_id;
+        return String(recordId) === patientId;
+    });
+    if (!selected) return;
+
+    const source = selected.input_data || selected;
+    setInputValue('patient_name', selected.patient_name || source.patient_name || '');
+    setInputValue('RIDAGEYR', source.RIDAGEYR);
+    setInputValue('RIAGENDR', source.RIAGENDR);
+    setInputValue('RIDRETH1', source.RIDRETH1);
+    setInputValue('INDHHIN2', source.INDHHIN2);
+    setInputValue('DMDEDUC2', source.DMDEDUC2);
+    setInputValue('DMDMARTL', source.DMDMARTL);
+    calculateLocalPreview();
+}
+
 function calculateLocalPreview() {
     const total = calculatePHQ9Total();
     const severity = getSeverityFromPHQ9(total);
@@ -434,8 +536,14 @@ function collectPatientPayload() {
     const form = document.getElementById('prediction-form');
     const data = new FormData(form);
     const age = Number(data.get('RIDAGEYR'));
+    const patientId = String(data.get('patient_id') || '').trim()
+        || generatePatientIdFromValues(data.get('patient_name'), age, data.get('RIAGENDR'));
+    const patientIdInput = document.getElementById('patient_id');
+    if (patientIdInput && !patientIdInput.value.trim()) {
+        patientIdInput.value = patientId;
+    }
     const payload = {
-        patient_id: String(data.get('patient_id') || '').trim(),
+        patient_id: patientId,
         patient_name: String(data.get('patient_name') || '').trim(),
         visit_date: String(data.get('visit_date') || '').trim(),
         visit_time: String(data.get('visit_time') || '').trim(),
@@ -458,7 +566,6 @@ function collectPatientPayload() {
 
 function validatePredictionForm(payload) {
     const errors = [];
-    if (!payload.patient_id) errors.push('Patient ID is required.');
     if (!payload.patient_name) errors.push('Patient name is required.');
     if (!Number.isFinite(payload.RIDAGEYR) || payload.RIDAGEYR < 0 || payload.RIDAGEYR > 120) errors.push('Age must be between 0 and 120.');
     if (!payload.visit_date) errors.push('Visit date is required.');
@@ -486,10 +593,13 @@ async function submitPrediction(save = false) {
             try {
                 result = await apiCall('/predict-and-save', 'POST', payload);
             } catch (error) {
-                if (!String(error.message).includes('MongoDB repository is not configured')) throw error;
+                const message = String(error.message);
+                if (!message.includes('MongoDB repository is not configured') && !message.includes('MongoDB is not available')) {
+                    throw error;
+                }
                 result = await apiCall('/predict', 'POST', payload);
                 result.predictions_saved = false;
-                result.mongo_note = 'MongoDB is not configured, so this prediction was not saved.';
+                result.mongo_note = 'MongoDB is unavailable, so this prediction was not saved.';
             }
         } else {
             result = await apiCall('/predict', 'POST', payload);
@@ -916,25 +1026,27 @@ const comparePatient = loadPatientComparison;
 function renderComparisonResult(data) {
     const target = document.getElementById('comparison-content');
     if (!data.has_comparison) {
-        showEmpty(target, data.message || 'At least two saved visits are needed for comparison.');
+        showEmpty(target, data.message || data.summary || 'At least two saved visits are needed for comparison.');
         return;
     }
 
     const current = data.current || {};
     const previous = data.previous || {};
     const riskDelta = Math.round((Number(current.risk_score || 0) - Number(previous.risk_score || 0)) * 100);
-    const statusClass = data.status === 'Improved' ? 'success' : data.status === 'Worsened' ? 'error-state' : 'empty-state';
+    const status = String(data.status || '').toLowerCase();
+    const change = data.change ?? data.phq9_change ?? 0;
+    const statusClass = status === 'improved' ? 'success' : status === 'worsened' ? 'error-state' : 'empty-state';
     target.className = 'card';
     target.innerHTML = `
         <div class="stat-grid">
             ${statCard('Previous PHQ-9', previous.phq9_total ?? '-')}
             ${statCard('Current PHQ-9', current.phq9_total ?? '-')}
-            ${statCard('PHQ-9 difference', data.change > 0 ? `+${data.change}` : data.change)}
+            ${statCard('PHQ-9 difference', change > 0 ? `+${change}` : change)}
             ${statCard('Risk difference', riskDelta > 0 ? `+${riskDelta}%` : `${riskDelta}%`)}
             ${statCard('Previous severity', previous.predicted_severity || previous.severity || '-')}
             ${statCard('Current severity', current.predicted_severity || current.severity || '-')}
         </div>
-        <div class="${statusClass}" style="margin-top:1rem;"><strong>${escapeHtml(data.status || 'Comparison')}:</strong> ${escapeHtml(data.message || '')}</div>
+        <div class="${statusClass}" style="margin-top:1rem;"><strong>${escapeHtml(data.status || 'Comparison')}:</strong> ${escapeHtml(data.message || data.summary || '')}</div>
         <div class="chart-grid" style="margin-top:1rem;">${chartCard('historyTrendChart', 'Trend over time')}</div>
     `;
     renderHistoryTrendChart(data.trend || []);
@@ -1246,6 +1358,12 @@ function riskPercentage(row) {
 
 function valueOf(id) {
     return String(document.getElementById(id)?.value || '').trim();
+}
+
+function setInputValue(id, value) {
+    const element = document.getElementById(id);
+    if (!element || value === undefined || value === null || value === '') return;
+    element.value = String(value);
 }
 
 function today() {

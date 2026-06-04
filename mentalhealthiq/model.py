@@ -1,4 +1,9 @@
-"""Train and load MentalHealthIQ depression severity models."""
+"""Train and load MentalHealthIQ PHQ-9 severity screening models.
+
+The current training target is derived from the PHQ-9 total score, and PHQ-9
+answers are retained as features for the demo workflow. Treat outputs as
+screening support, not an independent clinical diagnosis.
+"""
 
 from __future__ import annotations
 
@@ -40,7 +45,11 @@ MODEL_PATH = MODELS_DIR / "model.joblib"
 
 
 class DepthModel:
-    """Wrapper around a trained classifier and its label encoder."""
+    """Wrapper around a trained classifier and its label encoder.
+
+    TODO: Keep this compatibility name for existing artifacts/tests; consider
+    renaming to MentalHealthModel in a future artifact migration.
+    """
 
     def __init__(
         self,

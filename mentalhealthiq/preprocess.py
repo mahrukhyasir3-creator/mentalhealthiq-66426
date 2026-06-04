@@ -1,4 +1,8 @@
-"""Preprocess real NHANES demographic and PHQ-9 questionnaire data."""
+"""Preprocess real NHANES demographic and PHQ-9 questionnaire data.
+
+The current demo classifies PHQ-9 severity from the PHQ-9 answers themselves.
+It is a screening workflow, not an independent clinical diagnosis model.
+"""
 
 from __future__ import annotations
 
@@ -55,6 +59,14 @@ DEMOGRAPHIC_COLUMNS = [
 ]
 
 QUESTIONNAIRE_COLUMNS = ["SEQN", *PHQ_COLUMNS]
+
+NHANES_MISSING_CODES = {
+    "RIAGENDR": {7, 9},
+    "RIDRETH1": {7, 9},
+    "INDHHIN2": {77, 99},
+    "DMDEDUC2": {7, 9},
+    "DMDMARTL": {77, 99},
+}
 
 NUMERIC_FEATURES = ["RIDAGEYR", *PHQ_COLUMNS]
 CATEGORICAL_FEATURES = [
@@ -211,6 +223,15 @@ def validate_columns(df: pd.DataFrame, required_columns: list[str], dataset_name
         raise ValueError(f"{dataset_name} is missing required columns: {missing}")
 
 
+def validate_unique_key(df: pd.DataFrame, key_column: str, dataset_name: str) -> None:
+    """Validate merge keys are unique before joining source datasets."""
+
+    duplicates = df[key_column][df[key_column].duplicated()].dropna().unique()
+    if len(duplicates):
+        sample = duplicates[:5].tolist()
+        raise ValueError(f"{dataset_name} has duplicate {key_column} values: {sample}")
+
+
 def load_raw_data(
     demographic_path: Path = DEMOGRAPHIC_PATH,
     questionnaire_path: Path = QUESTIONNAIRE_PATH,
@@ -230,22 +251,35 @@ def load_raw_data(
 
     validate_columns(demographic_df, DEMOGRAPHIC_COLUMNS, str(demographic_path))
     validate_columns(questionnaire_df, QUESTIONNAIRE_COLUMNS, str(questionnaire_path))
+    validate_unique_key(demographic_df, "SEQN", str(demographic_path))
+    validate_unique_key(questionnaire_df, "SEQN", str(questionnaire_path))
 
     merged_df = demographic_df[DEMOGRAPHIC_COLUMNS].merge(
         questionnaire_df[QUESTIONNAIRE_COLUMNS],
         on="SEQN",
         how="inner",
     )
-    logger.info("Merged raw dataset has %s rows.", len(merged_df))
+    logger.info(
+        "Merged raw dataset has %s rows (%s demographic-only rows, %s questionnaire-only rows skipped).",
+        len(merged_df),
+        len(demographic_df) - len(merged_df),
+        len(questionnaire_df) - len(merged_df),
+    )
     return merged_df
 
 
 def clean_demographic_columns(df: pd.DataFrame) -> pd.DataFrame:
-    """Convert demographic columns to numeric values where NHANES stores codes."""
+    """Convert demographic columns to numeric values and null NHANES missing codes."""
 
     cleaned = df.copy()
     for column in DEMOGRAPHIC_COLUMNS:
         cleaned[column] = pd.to_numeric(cleaned[column], errors="coerce")
+        if column in NHANES_MISSING_CODES:
+            cleaned[column] = cleaned[column].where(
+                ~cleaned[column].isin(NHANES_MISSING_CODES[column]),
+                np.nan,
+            )
+    cleaned["RIDAGEYR"] = cleaned["RIDAGEYR"].where(cleaned["RIDAGEYR"].between(0, 120), np.nan)
     return cleaned
 
 
@@ -316,6 +350,9 @@ def select_features(df: pd.DataFrame) -> Tuple[pd.DataFrame, pd.Series]:
 def validate_stratified_split(y: pd.Series, test_size: float) -> None:
     """Validate the target distribution can support stratified splitting."""
 
+    if not 0 < test_size < 1:
+        raise ValueError(f"test_size must be between 0 and 1. Received: {test_size}")
+
     class_counts = y.value_counts()
     if class_counts.empty:
         raise ValueError("No target labels available for splitting.")
@@ -332,6 +369,13 @@ def validate_stratified_split(y: pd.Series, test_size: float) -> None:
             f"Need at least {len(class_counts)} test rows."
         )
 
+    requested_train_count = len(y) - requested_test_count
+    if requested_train_count < len(class_counts):
+        raise ValueError(
+            "test_size is too large for stratification across all severity classes. "
+            f"Need at least {len(class_counts)} training rows."
+        )
+
 
 def _transformed_dataframe(
     transformed: np.ndarray,
@@ -339,6 +383,12 @@ def _transformed_dataframe(
     feature_names: list[str],
 ) -> pd.DataFrame:
     """Build a CSV-ready transformed dataframe with SEVERITY appended."""
+
+    if transformed.shape[1] != len(feature_names):
+        raise ValueError(
+            "Transformed feature width does not match feature names: "
+            f"{transformed.shape[1]} != {len(feature_names)}"
+        )
 
     transformed_df = pd.DataFrame(transformed, columns=feature_names)
     transformed_df[TARGET_COLUMN] = target.to_numpy()

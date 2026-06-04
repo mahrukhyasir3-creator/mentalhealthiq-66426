@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -38,6 +39,46 @@ def derive_age_group(age: int) -> str:
     if age <= 59:
         return "45-59"
     return "60+"
+
+
+def _stable_patient_hash(value: str) -> str:
+    """Return a short deterministic hash shared with the browser implementation."""
+
+    hash_value = 0
+    for character in value:
+        hash_value = ((hash_value << 5) - hash_value + ord(character)) & 0xFFFFFFFF
+    return base36(hash_value).upper().rjust(6, "0")[-6:]
+
+
+def base36(value: int) -> str:
+    """Convert a non-negative integer to base36."""
+
+    alphabet = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+    if value == 0:
+        return "0"
+    digits = []
+    while value:
+        value, remainder = divmod(value, 36)
+        digits.append(alphabet[remainder])
+    return "".join(reversed(digits))
+
+
+def generate_patient_id(payload: "PredictionInput") -> str:
+    """Generate a stable clinic ID when the frontend/user does not provide one."""
+
+    patient_name = (payload.patient_name or "Patient").strip()
+    name_slug = re.sub(r"[^A-Za-z0-9]+", "-", patient_name).strip("-").upper() or "PATIENT"
+    name_slug = name_slug[:18]
+    seed = f"{name_slug}|{payload.RIDAGEYR}|{payload.RIAGENDR}"
+    return f"MHQ-{name_slug}-{_stable_patient_hash(seed)}"
+
+
+def normalize_patient_identity(payload: "PredictionInput") -> Dict[str, str]:
+    """Return the patient ID/name used consistently for prediction and history."""
+
+    patient_id = (payload.patient_id or "").strip() or generate_patient_id(payload)
+    patient_name = (payload.patient_name or "").strip() or "Unnamed patient"
+    return {"patient_id": patient_id, "patient_name": patient_name}
 
 
 class PredictionInput(BaseModel):
@@ -243,7 +284,10 @@ async def lifespan(app_instance: FastAPI):
 
 app = FastAPI(
     title="MentalHealthIQ Prediction API",
-    description="Depression severity prediction API using real NHANES PHQ-9 data.",
+    description=(
+        "PHQ-9 depression severity screening API using real NHANES-style data. "
+        "Outputs are screening support, not an independent clinical diagnosis."
+    ),
     version="0.1.0",
     lifespan=lifespan,
 )
@@ -333,6 +377,7 @@ def predict_payload(payload: PredictionInput) -> Dict[str, Any]:
     inference_assets = ensure_inference_assets()
     model: DepthModel = inference_assets["model"]
     preprocessor: DepthPreprocessor = inference_assets["preprocessor"]
+    identity = normalize_patient_identity(payload)
 
     features = preprocessor.transform(create_input_dataframe(payload))
     prediction_encoded = model.predict(features)
@@ -354,8 +399,8 @@ def predict_payload(payload: PredictionInput) -> Dict[str, Any]:
 
     timestamp = datetime.now(timezone.utc).isoformat()
     return {
-        "patient_id": payload.patient_id,
-        "patient_name": payload.patient_name,
+        "patient_id": identity["patient_id"],
+        "patient_name": identity["patient_name"],
         "visit_date": payload.visit_date,
         "visit_time": payload.visit_time,
         "doctor_notes": payload.doctor_notes,
@@ -487,6 +532,8 @@ async def predict_and_save(payload: PredictionInput) -> PredictionResponse:
 
     prediction = predict_payload(payload)
     payload_dict = payload.model_dump()
+    payload_dict["patient_id"] = prediction.get("patient_id")
+    payload_dict["patient_name"] = prediction.get("patient_name")
     if not payload_dict.get("AGE_GROUP"):
         payload_dict["AGE_GROUP"] = derive_age_group(payload.RIDAGEYR)
 

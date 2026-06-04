@@ -1,8 +1,15 @@
 from pathlib import Path
 
 import pandas as pd
+import pytest
 
-from mentalhealthiq.preprocess import PHQ_COLUMNS, preprocess_pipeline
+from mentalhealthiq.preprocess import (
+    PHQ_COLUMNS,
+    clean_demographic_columns,
+    load_raw_data,
+    preprocess_pipeline,
+    validate_stratified_split,
+)
 
 
 def test_preprocess_pipeline_creates_processed_files(raw_nhanes_files: dict[str, Path], tmp_path: Path) -> None:
@@ -57,3 +64,65 @@ def test_preprocess_removes_invalid_phq_values_and_creates_labels(
         "Severe",
     }
     assert "PHQ9_TOTAL" in raw_processed.columns
+
+
+def test_clean_demographic_columns_nulls_nhanes_missing_codes() -> None:
+    df = pd.DataFrame(
+        {
+            "SEQN": [1],
+            "RIDAGEYR": [130],
+            "RIAGENDR": [9],
+            "RIDRETH1": [7],
+            "INDHHIN2": [99],
+            "DMDEDUC2": [9],
+            "DMDMARTL": [77],
+        }
+    )
+
+    cleaned = clean_demographic_columns(df)
+
+    assert cleaned.drop(columns=["SEQN"]).isna().all().all()
+
+
+def test_load_raw_data_rejects_duplicate_seqn(tmp_path: Path) -> None:
+    demographic_path = tmp_path / "demographic.csv"
+    questionnaire_path = tmp_path / "questionnaire.csv"
+
+    pd.DataFrame(
+        [
+            {
+                "SEQN": 1,
+                "RIDAGEYR": 25,
+                "RIAGENDR": 1,
+                "RIDRETH1": 3,
+                "INDHHIN2": 4,
+                "DMDEDUC2": 5,
+                "DMDMARTL": 1,
+            },
+            {
+                "SEQN": 1,
+                "RIDAGEYR": 30,
+                "RIAGENDR": 2,
+                "RIDRETH1": 4,
+                "INDHHIN2": 5,
+                "DMDEDUC2": 4,
+                "DMDMARTL": 5,
+            },
+        ]
+    ).to_csv(demographic_path, index=False)
+    pd.DataFrame([{"SEQN": 1, **dict.fromkeys(PHQ_COLUMNS, 0)}]).to_csv(questionnaire_path, index=False)
+
+    with pytest.raises(ValueError, match="duplicate SEQN"):
+        load_raw_data(demographic_path, questionnaire_path)
+
+
+def test_validate_stratified_split_rejects_invalid_test_size() -> None:
+    with pytest.raises(ValueError, match="test_size must be between 0 and 1"):
+        validate_stratified_split(pd.Series(["Minimal", "Minimal"]), test_size=1.0)
+
+
+def test_validate_stratified_split_rejects_too_large_test_size() -> None:
+    y = pd.Series(["Minimal", "Minimal", "Mild", "Mild", "Severe", "Severe"])
+
+    with pytest.raises(ValueError, match="test_size is too large"):
+        validate_stratified_split(y, test_size=0.9)

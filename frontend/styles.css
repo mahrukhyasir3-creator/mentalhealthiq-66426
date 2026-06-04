@@ -469,6 +469,23 @@ textarea:focus-visible {
     font-weight: 850;
 }
 
+.input-action-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.55rem;
+    align-items: center;
+}
+
+.input-action-row .btn {
+    min-height: 48px;
+    white-space: nowrap;
+}
+
+.field-help {
+    color: var(--muted);
+    font-size: 0.86rem;
+}
+
 .form-group input,
 .form-group select,
 .form-group textarea,
@@ -856,6 +873,10 @@ td {
     }
 
     .radio-group {
+        grid-template-columns: 1fr;
+    }
+
+    .input-action-row {
         grid-template-columns: 1fr;
     }
 }
