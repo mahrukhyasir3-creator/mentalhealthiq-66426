@@ -29,7 +29,9 @@ const state = {
     fairnessReport: [],
     fairnessSummary: null,
     patientOptions: [],
+    patientOptionRecords: [],
     comparisonPatients: [],
+    reportPatients: [],
     filteredHistory: [],
     lastPayload: readStorage('mhiq_last_payload'),
     lastResult: readStorage('mhiq_last_result')
@@ -465,60 +467,189 @@ async function loadPatientOptions() {
 
     try {
         const response = await apiCall('/predictions?limit=500').catch(() => []);
-        const records = predictionRecordsFromResponse(response);
-        const byPatient = new Map();
-        records.forEach(record => {
-            const patientId = record.patient_id || record.input_data?.patient_id;
-            if (!patientId || byPatient.has(patientId)) return;
-            byPatient.set(patientId, record);
-        });
-        state.patientOptions = [...byPatient.values()];
-        dataList.innerHTML = state.patientOptions.map(record => {
-            const patientId = record.patient_id || record.input_data?.patient_id;
-            const patientName = record.patient_name || record.input_data?.patient_name || 'Unnamed patient';
-            return `<option value="${escapeHtml(patientId)}" label="${escapeHtml(patientName)}"></option>`;
+        const records = normalizePredictionsResponse(response);
+        state.patientOptionRecords = records;
+        state.patientOptions = getUniquePatients(records);
+        dataList.innerHTML = state.patientOptions.map(patient => {
+            return `<option value="${escapeHtml(patient.patient_id)}" label="${escapeHtml(patient.label)}"></option>`;
         }).join('');
     } catch {
         state.patientOptions = [];
+        state.patientOptionRecords = [];
     }
 }
 
-function predictionRecordsFromResponse(response) {
+function normalizePredictionsResponse(response) {
     if (Array.isArray(response)) return response;
     if (Array.isArray(response?.predictions)) return response.predictions;
     if (Array.isArray(response?.data)) return response.data;
     if (Array.isArray(response?.items)) return response.items;
+    if (Array.isArray(response?.results)) return response.results;
     return [];
 }
 
-function uniquePatientsFromPredictions(records) {
+const predictionRecordsFromResponse = normalizePredictionsResponse;
+
+async function fetchSavedPatients() {
+    const response = await apiCall('/predictions?limit=500');
+    const records = normalizePredictionsResponse(response);
+    if (!records.length) await ensureSavedPatientStoreAvailable();
+    return getUniquePatients(records);
+}
+
+async function ensureSavedPatientStoreAvailable() {
+    const health = await apiCall('/health').catch(() => null);
+    if (health && String(health.mongo || '').toLowerCase() !== 'ready') {
+        throw new Error('MongoDB is unavailable.');
+    }
+}
+
+function getUniquePatients(records) {
     const byPatient = new Map();
     records.forEach(record => {
-        const patientId = String(record.patient_id || record.input_data?.patient_id || '').trim();
-        if (!patientId || byPatient.has(patientId)) return;
+        const patientId = getPatientId(record);
+        if (!patientId) return;
 
-        const patientName = String(record.patient_name || record.input_data?.patient_name || '').trim();
+        const existing = byPatient.get(patientId);
+        const patientName = getPatientName(record) || existing?.patient_name || '';
+        const latestVisit = latestVisitValue(existing?.latest_visit, getVisitValue(record));
         byPatient.set(patientId, {
             patient_id: patientId,
             patient_name: patientName,
-            label: patientName ? `${patientName} - ${patientId}` : patientId
+            latest_visit: latestVisit,
+            visit_count: (existing?.visit_count || 0) + 1,
+            label: ''
         });
     });
-    return [...byPatient.values()].sort((a, b) => a.label.localeCompare(b.label));
+
+    return [...byPatient.values()]
+        .map(patient => ({
+            ...patient,
+            label: patientLabel(patient)
+        }))
+        .sort((a, b) => {
+            const nameCompare = (a.patient_name || '').localeCompare(b.patient_name || '');
+            return nameCompare || a.patient_id.localeCompare(b.patient_id);
+        });
+}
+
+const uniquePatientsFromPredictions = getUniquePatients;
+
+function getPatientId(record) {
+    return String(
+        record?.patient_id
+        || record?.patientId
+        || record?.id
+        || record?.input_data?.patient_id
+        || record?.input_data?.patientId
+        || record?.input_data?.id
+        || ''
+    ).trim();
+}
+
+function getPatientName(record) {
+    return String(
+        record?.patient_name
+        || record?.patientName
+        || record?.name
+        || record?.input_data?.patient_name
+        || record?.input_data?.patientName
+        || record?.input_data?.name
+        || ''
+    ).trim();
+}
+
+function getVisitValue(record) {
+    return record?.visit_date || record?.timestamp || record?.created_at || record?.input_data?.visit_date || '';
+}
+
+function latestVisitValue(current, candidate) {
+    if (!current) return candidate || '';
+    if (!candidate) return current;
+    return String(candidate) > String(current) ? candidate : current;
+}
+
+function patientLabel(patient) {
+    const base = patient.patient_name ? `${patient.patient_name} - ${patient.patient_id}` : patient.patient_id;
+    return patient.visit_count ? `${base} (${patient.visit_count} ${patient.visit_count === 1 ? 'visit' : 'visits'})` : base;
+}
+
+function patientSearchField(label, inputId, datalistId) {
+    return `
+        <div class="form-group">
+            <label for="${inputId}">${label}</label>
+            <input id="${inputId}" type="text" list="${datalistId}" placeholder="Search or select a patient" autocomplete="off">
+            <datalist id="${datalistId}"></datalist>
+        </div>
+    `;
+}
+
+async function populatePatientSearchDropdown(inputId, datalistId, statusId = null, records = null) {
+    const input = document.getElementById(inputId);
+    const datalist = document.getElementById(datalistId);
+    const status = statusId ? document.getElementById(statusId) : null;
+    if (!input || !datalist) return [];
+
+    input.dataset.patientLoadFailed = 'false';
+    if (status) showLoading(status, 'Loading saved patients...');
+
+    try {
+        if (records && !records.length) await ensureSavedPatientStoreAvailable();
+        const patients = records ? getUniquePatients(records) : await fetchSavedPatients();
+        datalist.innerHTML = patients.map(patient => {
+            return `<option value="${escapeHtml(patient.patient_id)}" label="${escapeHtml(patient.label)}"></option>`;
+        }).join('');
+
+        input.placeholder = patients.length ? 'Search or select a patient' : 'No saved patients found';
+
+        if (status) {
+            if (patients.length) {
+                status.className = 'success';
+                status.innerHTML = `Loaded ${patients.length} saved patient${patients.length === 1 ? '' : 's'}.`;
+            } else {
+                showEmpty(status, 'No saved patients found. Use Predict & Save first.');
+            }
+        }
+
+        return patients;
+    } catch (error) {
+        input.dataset.patientLoadFailed = 'true';
+        datalist.innerHTML = '';
+        input.placeholder = 'Saved patients unavailable';
+        if (status) {
+            showError(status, 'Could not load saved patients. Make sure API and MongoDB are running.');
+        }
+        return [];
+    }
+}
+
+function getSelectedPatientId(inputId) {
+    const rawValue = valueOf(inputId);
+    if (!rawValue) return '';
+
+    const allPatients = [
+        ...state.patientOptions,
+        ...state.comparisonPatients,
+        ...state.reportPatients,
+        ...getUniquePatients(state.history)
+    ];
+    const selected = allPatients.find(patient => {
+        return patient.patient_id === rawValue || patient.label === rawValue;
+    });
+    return selected?.patient_id || rawValue;
 }
 
 function applySelectedPatient() {
     const patientId = valueOf('patient_id');
     if (!patientId) return;
 
-    const selected = state.patientOptions.find(record => {
-        const recordId = record.patient_id || record.input_data?.patient_id;
-        return String(recordId) === patientId;
+    const selected = state.patientOptionRecords.find(record => {
+        return getPatientId(record) === patientId;
     });
     if (!selected) return;
 
     const source = selected.input_data || selected;
-    setInputValue('patient_name', selected.patient_name || source.patient_name || '');
+    setInputValue('patient_name', getPatientName(selected));
     setInputValue('RIDAGEYR', source.RIDAGEYR);
     setInputValue('RIAGENDR', source.RIAGENDR);
     setInputValue('RIDRETH1', source.RIDRETH1);
@@ -889,13 +1020,14 @@ function renderHistoryPage(page) {
         ${pageHeader('Saved predictions', 'Patient History', 'Search and review saved patient screenings. MongoDB must be configured for saved history.')}
         <div class="card">
             <div class="filter-bar">
-                ${inputField('Search Patient ID', 'historyPatientId', 'text')}
+                ${patientSearchField('Patient', 'historyPatientSearch', 'historyPatientsList')}
                 ${inputField('Search Patient Name', 'historyName', 'text')}
                 ${selectField('Severity', 'historySeverity', [['', 'All'], ...SEVERITIES.map(item => [item, item])])}
                 ${selectField('Risk Band', 'historyRisk', [['', 'All'], ['Low', 'Low'], ['Medium', 'Medium'], ['High', 'High']])}
                 ${inputField('From Date', 'historyFrom', 'date')}
                 ${inputField('To Date', 'historyTo', 'date')}
             </div>
+            <div id="historyPatientStatus" style="margin-top:1rem;"></div>
             <div class="button-row">
                 <button class="btn btn-primary" onclick="loadHistory()">Load History</button>
                 <button class="btn btn-secondary" onclick="searchPatientHistory()">Apply Filters</button>
@@ -909,33 +1041,45 @@ function renderHistoryPage(page) {
 async function loadHistory() {
     showLoading('history-content', 'Loading patient history...');
     try {
-        const records = await apiCall('/predictions?limit=500').catch(() => []);
-        state.history = Array.isArray(records) ? records : [];
-        searchPatientHistory();
+        const response = await apiCall('/predictions?limit=500');
+        state.history = normalizePredictionsResponse(response);
+        await populatePatientSearchDropdown('historyPatientSearch', 'historyPatientsList', 'historyPatientStatus', state.history);
+        await searchPatientHistory();
     } catch (error) {
+        showError('historyPatientStatus', 'Could not load saved patients. Make sure API and MongoDB are running.');
         showError('history-content', `History failed: ${error.message}`);
     }
 }
 
-function searchPatientHistory() {
+async function searchPatientHistory() {
     const target = document.getElementById('history-content');
     if (!target) return;
 
-    const patientId = valueOf('historyPatientId').toLowerCase();
+    const selectedPatientId = getSelectedPatientId('historyPatientSearch');
     const name = valueOf('historyName').toLowerCase();
     const severity = valueOf('historySeverity');
     const risk = valueOf('historyRisk');
     const from = valueOf('historyFrom');
     const to = valueOf('historyTo');
+    let records = state.history;
 
-    const filtered = state.history.filter(item => {
-        const itemPatientId = String(item.patient_id || item.input_data?.patient_id || '').toLowerCase();
-        const itemName = String(item.patient_name || item.input_data?.patient_name || '').toLowerCase();
+    if (selectedPatientId) {
+        showLoading(target, 'Loading selected patient history...');
+        try {
+            const response = await apiCall(`/patients/${encodeURIComponent(selectedPatientId)}/history`);
+            records = normalizePredictionsResponse(response);
+        } catch (error) {
+            showError(target, `Patient history failed: ${error.message}`);
+            return;
+        }
+    }
+
+    const filtered = records.filter(item => {
+        const itemName = getPatientName(item).toLowerCase();
         const itemSeverity = item.predicted_severity || item.severity || '';
         const itemRisk = item.risk_band || getRiskBandFromSeverity(itemSeverity);
         const itemDate = item.visit_date || String(item.timestamp || '').slice(0, 10);
-        return (!patientId || itemPatientId.includes(patientId))
-            && (!name || itemName.includes(name))
+        return (!name || itemName.includes(name))
             && (!severity || itemSeverity === severity)
             && (!risk || itemRisk === risk)
             && (!from || itemDate >= from)
@@ -1023,12 +1167,7 @@ function renderComparisonPage(page) {
         ${pageHeader('Patient trend', 'Patient Comparison', 'Compare the current/latest saved visit with the previous saved visit for a patient.')}
         <div class="card">
             <div class="form-grid">
-                <div class="form-group">
-                    <label for="comparisonPatientSelect">Patient</label>
-                    <select id="comparisonPatientSelect" required>
-                        <option value="">Select a patient</option>
-                    </select>
-                </div>
+                ${patientSearchField('Patient', 'comparisonPatientSearch', 'comparisonPatientsList')}
                 <div class="form-group"><label>&nbsp;</label><button id="comparePatientBtn" class="btn btn-primary" onclick="loadPatientComparison()" disabled>Compare Patient Visits</button></div>
             </div>
             <div id="comparisonStatus" style="margin-top:1rem;"></div>
@@ -1040,49 +1179,44 @@ function renderComparisonPage(page) {
 }
 
 async function loadComparisonPatients() {
-    const select = document.getElementById('comparisonPatientSelect');
     const button = document.getElementById('comparePatientBtn');
-    const status = document.getElementById('comparisonStatus');
-    if (!select || !button || !status) return;
+    if (!button) return;
 
     button.disabled = true;
-    showLoading(status, 'Loading saved patients...');
 
     try {
-        const response = await apiCall('/predictions?limit=500');
-        const records = predictionRecordsFromResponse(response);
-        const patients = uniquePatientsFromPredictions(records);
+        const patients = await populatePatientSearchDropdown(
+            'comparisonPatientSearch',
+            'comparisonPatientsList',
+            'comparisonStatus'
+        );
         state.comparisonPatients = patients;
 
-        select.innerHTML = [
-            '<option value="">Select a patient</option>',
-            ...patients.map(patient => `<option value="${escapeHtml(patient.patient_id)}">${escapeHtml(patient.label)}</option>`)
-        ].join('');
-
         const lastPatientId = state.lastPayload?.patient_id || state.lastResult?.patient_id || '';
-        if (lastPatientId && patients.some(patient => patient.patient_id === lastPatientId)) {
-            select.value = lastPatientId;
+        const input = document.getElementById('comparisonPatientSearch');
+        if (input && lastPatientId && patients.some(patient => patient.patient_id === lastPatientId)) {
+            input.value = lastPatientId;
         }
 
         if (!patients.length) {
-            showEmpty(status, 'No saved patients found. Use Predict & Save first.');
-            showEmpty('comparison-content', 'No saved patients found. Use Predict & Save first.');
+            const input = document.getElementById('comparisonPatientSearch');
+            if (input?.dataset.patientLoadFailed === 'true') {
+                showEmpty('comparison-content', 'Saved patients are unavailable right now.');
+            } else {
+                showEmpty('comparison-content', 'No saved patients found. Use Predict & Save first.');
+            }
             return;
         }
 
         button.disabled = false;
-        status.className = 'success';
-        status.innerHTML = `Loaded ${patients.length} saved patient${patients.length === 1 ? '' : 's'}.`;
     } catch (error) {
         state.comparisonPatients = [];
-        select.innerHTML = '<option value="">Select a patient</option>';
-        showError(status, `Could not load saved patients. Make sure the API and MongoDB are available. Details: ${error.message}`);
         showEmpty('comparison-content', 'Saved patients are unavailable right now.');
     }
 }
 
 async function loadPatientComparison() {
-    const patientId = valueOf('comparisonPatientSelect');
+    const patientId = getSelectedPatientId('comparisonPatientSearch');
     if (!patientId) {
         showError('comparison-content', 'Select a patient first.');
         return;
@@ -1134,12 +1268,65 @@ function renderReportsPage(page) {
     `;
     page.innerHTML = `
         ${pageHeader('Printable report', 'Patient Report', 'Print or save the current prediction report from the browser.', actions)}
+        <div class="card no-print" style="margin-bottom:1rem;">
+            <div class="form-grid">
+                ${patientSearchField('Patient', 'reportPatientSearch', 'reportPatientsList')}
+                <div class="form-group"><label>&nbsp;</label><button id="loadReportPatientBtn" class="btn btn-primary" onclick="loadReportForSelectedPatient()" disabled>Load Latest Report</button></div>
+            </div>
+            <div id="reportPatientStatus" style="margin-top:1rem;"></div>
+        </div>
         <div id="report-content">${state.lastResult ? renderPrintableReport() : '<div class="empty-state">No report available. Submit a PHQ-9 form or open a saved history record first.</div>'}</div>
     `;
+    loadReportPatients();
 }
 
 function generateReport() {
     navigateTo('reports');
+}
+
+async function loadReportPatients() {
+    const button = document.getElementById('loadReportPatientBtn');
+    if (!button) return;
+
+    button.disabled = true;
+    const patients = await populatePatientSearchDropdown('reportPatientSearch', 'reportPatientsList', 'reportPatientStatus');
+    state.reportPatients = patients;
+
+    const lastPatientId = state.lastPayload?.patient_id || state.lastResult?.patient_id || '';
+    const input = document.getElementById('reportPatientSearch');
+    if (input && lastPatientId && patients.some(patient => patient.patient_id === lastPatientId)) {
+        input.value = lastPatientId;
+    }
+
+    button.disabled = patients.length === 0;
+}
+
+async function loadReportForSelectedPatient() {
+    const patientId = getSelectedPatientId('reportPatientSearch');
+    const target = document.getElementById('report-content');
+    if (!patientId) {
+        showError('reportPatientStatus', 'Select a patient first.');
+        return;
+    }
+
+    showLoading(target, 'Loading latest patient report...');
+    try {
+        const response = await apiCall(`/patients/${encodeURIComponent(patientId)}/history`);
+        const records = normalizePredictionsResponse(response);
+        if (!records.length) {
+            showEmpty(target, 'No saved visits found for this patient.');
+            return;
+        }
+
+        const latest = [...records].sort((a, b) => String(getVisitValue(b)).localeCompare(String(getVisitValue(a))))[0];
+        state.lastPayload = latest.input_data || {};
+        state.lastResult = normalizeResult(latest, state.lastPayload);
+        writeStorage('mhiq_last_payload', state.lastPayload);
+        writeStorage('mhiq_last_result', state.lastResult);
+        target.innerHTML = renderPrintableReport();
+    } catch (error) {
+        showError(target, `Report failed: ${error.message}`);
+    }
 }
 
 function printReport() {
