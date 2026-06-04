@@ -1,0 +1,503 @@
+{
+  "artifacts": {
+    "fairness_report": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:29.655854+00:00",
+      "path": "data\\fairness_reports\\fairness_report.csv",
+      "sha256": "68a819972e5f8a9c69ee34fd29af0aa450a19d5f8c7fab3d1ece4dd8b6d0b442",
+      "size_bytes": 5997
+    },
+    "model": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:29.456972+00:00",
+      "path": "data\\models\\model.joblib",
+      "sha256": "190d9c8f9d8a35b96c83c4f5ae2f4096c9cbf04e027e0ad865da8ff29df1d5ac",
+      "size_bytes": 4822
+    },
+    "preprocessor": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:28.776334+00:00",
+      "path": "data\\processed\\preprocessor.joblib",
+      "sha256": "e547514235c12c0a781cfb6cdacb2c185d38dbddcb30498555228def74033332",
+      "size_bytes": 6218
+    },
+    "raw_demographic": {
+      "exists": true,
+      "modified_at": "2026-06-03T17:37:40.592365+00:00",
+      "path": "data\\raw\\demographic.csv",
+      "sha256": "0b261c8cb09b947ed8acfb79b1c10c63bdbf86091c0fd9cb5a930d78e43ad87f",
+      "size_bytes": 1206856
+    },
+    "raw_questionnaire": {
+      "exists": true,
+      "modified_at": "2026-06-03T17:37:40.877633+00:00",
+      "path": "data\\raw\\questionnaire.csv",
+      "sha256": "e175e9361f1049c87fbf15932e55214dbef8a1c8ffb252ebe0ca9d7d5fdcde3f",
+      "size_bytes": 12414125
+    },
+    "test": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:28.745629+00:00",
+      "path": "data\\processed\\test.csv",
+      "sha256": "e78fcb54c4af635f882efc18ac3e9d91ffa864361207a8a5a8856a97195abb56",
+      "size_bytes": 568284
+    },
+    "test_raw": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:28.774331+00:00",
+      "path": "data\\processed\\test_raw.csv",
+      "sha256": "9943511e4c6464af12a2c3cc9fd20fbcad1be747881b1be10c58d731c39b5cc9",
+      "size_bytes": 127738
+    },
+    "train": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:28.714907+00:00",
+      "path": "data\\processed\\train.csv",
+      "sha256": "02b42bedf09b76d257447ee92e78235cc2b28150d0892ea8629e637d33e8699e",
+      "size_bytes": 1324554
+    },
+    "train_raw": {
+      "exists": true,
+      "modified_at": "2026-06-04T07:45:28.764325+00:00",
+      "path": "data\\processed\\train_raw.csv",
+      "sha256": "353aa313bf2a155adf9801a11cd6f5f67497cb26241ee55e7139cf86eb672aca",
+      "size_bytes": 297988
+    }
+  },
+  "fairness_report": {
+    "exists": true,
+    "groups": [
+      "AGE_GROUP",
+      "INDHHIN2",
+      "RIAGENDR",
+      "RIDRETH1"
+    ],
+    "low_sample_size_rows": 1,
+    "path": "data\\fairness_reports\\fairness_report.csv",
+    "required_groups_present": [
+      "AGE_GROUP",
+      "INDHHIN2",
+      "RIAGENDR",
+      "RIDRETH1"
+    ],
+    "row_count": 25
+  },
+  "features": {
+    "feature_columns": [
+      "RIDAGEYR",
+      "RIAGENDR",
+      "RIDRETH1",
+      "INDHHIN2",
+      "DMDEDUC2",
+      "DMDMARTL",
+      "AGE_GROUP",
+      "DPQ010",
+      "DPQ020",
+      "DPQ030",
+      "DPQ040",
+      "DPQ050",
+      "DPQ060",
+      "DPQ070",
+      "DPQ080",
+      "DPQ090"
+    ],
+    "leakage_caveat": "Current model uses PHQ-9 answers as features while SEVERITY is derived from PHQ9_TOTAL. High accuracy is expected because the model can learn the PHQ-9 scoring rule. This is appropriate for demo screening/classification, not independent clinical prediction.",
+    "phq_columns_used_as_features": [
+      "DPQ010",
+      "DPQ020",
+      "DPQ030",
+      "DPQ040",
+      "DPQ050",
+      "DPQ060",
+      "DPQ070",
+      "DPQ080",
+      "DPQ090"
+    ],
+    "raw_output_columns": [
+      "SEQN",
+      "RIDAGEYR",
+      "RIAGENDR",
+      "RIDRETH1",
+      "INDHHIN2",
+      "DMDEDUC2",
+      "DMDMARTL",
+      "AGE_GROUP",
+      "DPQ010",
+      "DPQ020",
+      "DPQ030",
+      "DPQ040",
+      "DPQ050",
+      "DPQ060",
+      "DPQ070",
+      "DPQ080",
+      "DPQ090",
+      "PHQ9_TOTAL",
+      "SEVERITY"
+    ]
+  },
+  "generated_at": "2026-06-04T07:47:36.554677+00:00",
+  "model": {
+    "accuracy_note": "Current model uses PHQ-9 answers as features while SEVERITY is derived from PHQ9_TOTAL. High accuracy is expected because the model can learn the PHQ-9 scoring rule. This is appropriate for demo screening/classification, not independent clinical prediction.",
+    "accuracy_suspiciously_high": true,
+    "best_model_name": "Logistic Regression",
+    "feature_names": [
+      "num__RIDAGEYR",
+      "num__DPQ010",
+      "num__DPQ020",
+      "num__DPQ030",
+      "num__DPQ040",
+      "num__DPQ050",
+      "num__DPQ060",
+      "num__DPQ070",
+      "num__DPQ080",
+      "num__DPQ090",
+      "cat__RIAGENDR_1",
+      "cat__RIAGENDR_2",
+      "cat__RIDRETH1_1",
+      "cat__RIDRETH1_2",
+      "cat__RIDRETH1_3",
+      "cat__RIDRETH1_4",
+      "cat__RIDRETH1_5",
+      "cat__INDHHIN2_1.0",
+      "cat__INDHHIN2_2.0",
+      "cat__INDHHIN2_3.0",
+      "cat__INDHHIN2_4.0",
+      "cat__INDHHIN2_5.0",
+      "cat__INDHHIN2_6.0",
+      "cat__INDHHIN2_7.0",
+      "cat__INDHHIN2_8.0",
+      "cat__INDHHIN2_9.0",
+      "cat__INDHHIN2_10.0",
+      "cat__INDHHIN2_12.0",
+      "cat__INDHHIN2_13.0",
+      "cat__INDHHIN2_14.0",
+      "cat__INDHHIN2_15.0",
+      "cat__DMDEDUC2_1.0",
+      "cat__DMDEDUC2_2.0",
+      "cat__DMDEDUC2_3.0",
+      "cat__DMDEDUC2_4.0",
+      "cat__DMDEDUC2_5.0",
+      "cat__DMDMARTL_1.0",
+      "cat__DMDMARTL_2.0",
+      "cat__DMDMARTL_3.0",
+      "cat__DMDMARTL_4.0",
+      "cat__DMDMARTL_5.0",
+      "cat__DMDMARTL_6.0",
+      "cat__AGE_GROUP_18-29",
+      "cat__AGE_GROUP_30-44",
+      "cat__AGE_GROUP_45-59",
+      "cat__AGE_GROUP_60+"
+    ],
+    "metrics": {
+      "accuracy": 0.9913151364764268,
+      "best_model_name": "Logistic Regression",
+      "classification_report": {
+        "Mild": {
+          "f1-score": 0.9921568627450981,
+          "precision": 0.98828125,
+          "recall": 0.9960629921259843,
+          "support": 254.0
+        },
+        "Minimal": {
+          "f1-score": 1.0,
+          "precision": 1.0,
+          "recall": 1.0,
+          "support": 1205.0
+        },
+        "Moderate": {
+          "f1-score": 0.9468085106382979,
+          "precision": 0.956989247311828,
+          "recall": 0.9368421052631579,
+          "support": 95.0
+        },
+        "Moderately Severe": {
+          "f1-score": 0.8780487804878049,
+          "precision": 0.8780487804878049,
+          "recall": 0.8780487804878049,
+          "support": 41.0
+        },
+        "Severe": {
+          "f1-score": 0.8823529411764706,
+          "precision": 0.8823529411764706,
+          "recall": 0.8823529411764706,
+          "support": 17.0
+        },
+        "accuracy": 0.9913151364764268,
+        "macro avg": {
+          "f1-score": 0.9398734190095344,
+          "precision": 0.9411344437952206,
+          "recall": 0.9386613638106833,
+          "support": 1612.0
+        },
+        "weighted avg": {
+          "f1-score": 0.9912870047443506,
+          "precision": 0.9912763126517516,
+          "recall": 0.9913151364764268,
+          "support": 1612.0
+        }
+      },
+      "confusion_matrix": [
+        [
+          253,
+          0,
+          1,
+          0,
+          0
+        ],
+        [
+          0,
+          1205,
+          0,
+          0,
+          0
+        ],
+        [
+          3,
+          0,
+          89,
+          3,
+          0
+        ],
+        [
+          0,
+          0,
+          3,
+          36,
+          2
+        ],
+        [
+          0,
+          0,
+          0,
+          2,
+          15
+        ]
+      ],
+      "f1": 0.9912870047443506,
+      "precision": 0.9912763126517516,
+      "recall": 0.9913151364764268,
+      "test_size": 1612,
+      "train_size": 3760,
+      "trained_at": "2026-06-04T07:45:29.383359+00:00"
+    },
+    "model_type": "Logistic Regression",
+    "prediction_label_distribution": {
+      "Mild": 256,
+      "Minimal": 1205,
+      "Moderate": 93,
+      "Moderately Severe": 41,
+      "Severe": 17
+    },
+    "test_label_distribution": {
+      "Mild": 254,
+      "Minimal": 1205,
+      "Moderate": 95,
+      "Moderately Severe": 41,
+      "Severe": 17
+    },
+    "test_size": 1612,
+    "train_size": 3760,
+    "trained_at": "2026-06-04T07:45:29.383359+00:00"
+  },
+  "phq9_total_and_severity": {
+    "processed_totals_match_cleaned_phq_sum": true,
+    "severity_bins": {
+      "Mild": [
+        5,
+        9
+      ],
+      "Minimal": [
+        0,
+        4
+      ],
+      "Moderate": [
+        10,
+        14
+      ],
+      "Moderately Severe": [
+        15,
+        19
+      ],
+      "Severe": [
+        20,
+        27
+      ]
+    },
+    "severity_distribution": {
+      "Mild": 845,
+      "Minimal": 4016,
+      "Moderate": 316,
+      "Moderately Severe": 138,
+      "Severe": 57
+    },
+    "valid_total_range": [
+      0,
+      27
+    ]
+  },
+  "phq_cleaning": {
+    "complete_valid_phq_rows": 5372,
+    "invalid_or_missing_cell_count": 43050,
+    "invalid_values_not_counted_in_total": true,
+    "observed_invalid_values": [
+      "7.0",
+      "9.0"
+    ],
+    "valid_answer_values": [
+      0,
+      1,
+      2,
+      3
+    ]
+  },
+  "raw_csv_usage": {
+    "demographic_path": "data\\raw\\demographic.csv",
+    "demographic_rows": 10175,
+    "merged_valid_rows": 5372,
+    "questionnaire_path": "data\\raw\\questionnaire.csv",
+    "questionnaire_rows": 10175,
+    "required_demographic_columns": [
+      "SEQN",
+      "RIDAGEYR",
+      "RIAGENDR",
+      "RIDRETH1",
+      "INDHHIN2",
+      "DMDEDUC2",
+      "DMDMARTL"
+    ],
+    "required_questionnaire_columns": [
+      "SEQN",
+      "DPQ010",
+      "DPQ020",
+      "DPQ030",
+      "DPQ040",
+      "DPQ050",
+      "DPQ060",
+      "DPQ070",
+      "DPQ080",
+      "DPQ090"
+    ]
+  },
+  "sample_prediction_checks": [
+    {
+      "expected_severity": "Minimal",
+      "matches_expected": true,
+      "phq9_total": 0,
+      "predicted_severity": "Minimal",
+      "probabilities": {
+        "Mild": 1.7905675417827013e-08,
+        "Minimal": 0.9999999820943245,
+        "Moderate": 5.627047952784907e-17,
+        "Moderately Severe": 1.2470480355155353e-25,
+        "Severe": 7.348896797747603e-35
+      },
+      "recommendation": "Continue routine wellness monitoring.",
+      "risk_band": "Low",
+      "risk_percentage": 100.0
+    },
+    {
+      "expected_severity": "Mild",
+      "matches_expected": true,
+      "phq9_total": 5,
+      "predicted_severity": "Mild",
+      "probabilities": {
+        "Mild": 0.8993942532398441,
+        "Minimal": 0.10055204273564268,
+        "Moderate": 5.370398645520818e-05,
+        "Moderately Severe": 3.805812614707566e-11,
+        "Severe": 2.9642074835958083e-18
+      },
+      "recommendation": "Schedule follow-up if symptoms continue or increase.",
+      "risk_band": "Low",
+      "risk_percentage": 89.9
+    },
+    {
+      "expected_severity": "Moderate",
+      "matches_expected": true,
+      "phq9_total": 10,
+      "predicted_severity": "Moderate",
+      "probabilities": {
+        "Mild": 0.4758843916720209,
+        "Minimal": 1.5601687078810753e-10,
+        "Moderate": 0.5238919711629294,
+        "Moderately Severe": 0.0002236358077036974,
+        "Severe": 1.2013290699248062e-09
+      },
+      "recommendation": "Mental health follow-up is suggested.",
+      "risk_band": "Medium",
+      "risk_percentage": 52.4
+    },
+    {
+      "expected_severity": "Moderately Severe",
+      "matches_expected": false,
+      "phq9_total": 15,
+      "predicted_severity": "Moderate",
+      "probabilities": {
+        "Mild": 1.5023029688732806e-05,
+        "Minimal": 1.6958895494927574e-23,
+        "Moderate": 0.7036138398407312,
+        "Moderately Severe": 0.29610349129708474,
+        "Severe": 0.00026764583249532875
+      },
+      "recommendation": "Mental health follow-up is suggested.",
+      "risk_band": "Medium",
+      "risk_percentage": 70.4
+    },
+    {
+      "expected_severity": "Severe",
+      "matches_expected": false,
+      "phq9_total": 20,
+      "predicted_severity": "Moderately Severe",
+      "probabilities": {
+        "Mild": 9.091551592128419e-13,
+        "Minimal": 4.8261756338257195e-39,
+        "Moderate": 0.0010984446678060965,
+        "Moderately Severe": 0.6243141588569933,
+        "Severe": 0.3745873964742914
+      },
+      "recommendation": "Immediate mental health follow-up is advised.",
+      "risk_band": "High",
+      "risk_percentage": 62.4
+    },
+    {
+      "expected_severity": "Severe",
+      "matches_expected": true,
+      "phq9_total": 27,
+      "predicted_severity": "Severe",
+      "probabilities": {
+        "Mild": 2.826744364268862e-26,
+        "Minimal": 7.805462670022327e-65,
+        "Moderate": 1.3432601005737656e-10,
+        "Moderately Severe": 0.0013156364466338697,
+        "Severe": 0.9986843634190402
+      },
+      "recommendation": "Immediate mental health follow-up is advised.",
+      "risk_band": "High",
+      "risk_percentage": 99.9
+    }
+  ],
+  "train_test_split": {
+    "duplicate_seqn_across_train_test": [],
+    "duplicate_seqn_count": 0,
+    "random_state": 42,
+    "stratified_split_expected": true,
+    "test_label_distribution": {
+      "Mild": 254,
+      "Minimal": 1205,
+      "Moderate": 95,
+      "Moderately Severe": 41,
+      "Severe": 17
+    },
+    "test_raw_rows": 1612,
+    "test_rows": 1612,
+    "train_label_distribution": {
+      "Mild": 591,
+      "Minimal": 2811,
+      "Moderate": 221,
+      "Moderately Severe": 97,
+      "Severe": 40
+    },
+    "train_raw_rows": 3760,
+    "train_rows": 3760
+  }
+}
