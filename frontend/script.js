@@ -198,8 +198,7 @@ function featureCard(title, text) {
 
 function renderDashboardPage(page) {
     page.innerHTML = `
-        ${pageHeader('Clinic overview', 'Dashboard', 'Saved prediction trends and model status. If MongoDB is not configured, dashboard still shows model and fairness status.')}
-        <div id="dashboard-content" class="main-content-card"></div>
+        <div id="dashboard-content" class="dashboard-shell"></div>
     `;
     loadDashboard();
 }
@@ -219,30 +218,50 @@ async function loadDashboard() {
         const dashboardStats = stats || buildStats(state.history);
         const averagePhq = average(state.history.map(item => Number(item.phq9_total || 0)).filter(Boolean));
         const hasPredictions = state.history.length > 0;
+        const latestPredictionTime = dashboardStats.latest_prediction_time
+            ? formatCompactDateTime(dashboardStats.latest_prediction_time)
+            : 'No saved predictions yet';
+        const mongoReady = String(health.mongo || '').toLowerCase() === 'ready';
+        const modelReady = String(health.model || '').toLowerCase() === 'ready';
 
         const container = document.getElementById('dashboard-content');
-        container.className = '';
+        container.className = 'dashboard-shell';
         container.innerHTML = `
-            <div class="stat-grid">
-                ${statCard('Total predictions', dashboardStats.total_predictions || 0)}
-                ${statCard('High risk patients', dashboardStats.high_risk_patients || 0, 'Urgent follow-up')}
-                ${statCard('Medium risk patients', dashboardStats.medium_risk_patients || 0)}
-                ${statCard('Low risk patients', dashboardStats.low_risk_patients || 0)}
-                ${statCard('Average PHQ-9 score', averagePhq ? averagePhq.toFixed(1) : '0.0')}
-                ${statCard('Average risk score', percent(dashboardStats.average_risk_score || 0))}
-                ${statCard('Latest prediction time', dashboardStats.latest_prediction_time ? formatDateTime(dashboardStats.latest_prediction_time) : 'No saved visits')}
-                ${statCard('Model status', health.model || 'unknown')}
+            <header class="dashboard-header-card">
+                <div>
+                    <div class="eyebrow">Clinic Overview</div>
+                    <h1 class="page-title">Dashboard</h1>
+                    <p class="page-subtitle">Saved screening activity, risk mix, model readiness, and fairness snapshots for the clinic workspace.</p>
+                </div>
+                <div class="dashboard-status-row">
+                    ${statusPill('Model', modelReady ? 'Ready' : health.model || 'Unknown', modelReady ? 'ready' : 'warn')}
+                    ${statusPill('MongoDB', mongoReady ? 'Ready' : health.mongo || 'Unavailable', mongoReady ? 'ready' : 'warn')}
+                </div>
+            </header>
+
+            <div class="dashboard-grid">
+                ${metricCard('Total predictions', dashboardStats.total_predictions || 0, 'Saved screenings', 'total')}
+                ${metricCard('High risk patients', dashboardStats.high_risk_patients || 0, 'Urgent follow-up', 'high')}
+                ${metricCard('Medium risk patients', dashboardStats.medium_risk_patients || 0, 'Follow-up suggested', 'medium')}
+                ${metricCard('Low risk patients', dashboardStats.low_risk_patients || 0, 'Routine monitoring', 'low')}
+                ${metricCard('Average PHQ-9 score', averagePhq ? averagePhq.toFixed(1) : '0.0', 'Across saved visits', 'score')}
+                ${metricCard('Average risk score', percent(dashboardStats.average_risk_score || 0), 'Mean confidence', 'risk')}
+                ${metricCard('Latest prediction time', latestPredictionTime, hasPredictions ? 'Most recent saved visit' : 'Waiting for saved data', 'time')}
+                ${metricCard('Model status', health.model || 'unknown', 'Inference artifact', modelReady ? 'ready' : 'warn')}
             </div>
-            ${!hasPredictions ? `<div class="empty-state" style="margin-top:1rem;">No predictions saved yet. Submit a patient form and configure MongoDB to populate dashboard history.</div>` : ''}
-            <div class="chart-grid" style="margin-top:1rem;">
-                ${chartCard('severityChart', 'Severity distribution')}
-                ${chartCard('riskBandChart', 'Risk band distribution')}
-                ${chartCard('predictionsTimeChart', 'Predictions over time')}
-                ${chartCard('phqAverageChart', 'Average PHQ-9 score over time')}
-                ${chartCard('genderRiskChart', 'Gender-wise risk')}
-                ${chartCard('ageRiskChart', 'Age-wise risk')}
+
+            ${!hasPredictions ? `<div class="empty-state dashboard-empty-state">No saved predictions yet. Submit a PHQ-9 form with <strong>Predict and Save</strong> to populate dashboard history.</div>` : ''}
+
+            <div class="chart-grid dashboard-chart-grid">
+                ${chartCard('severityChart', 'Severity distribution', 'Share of saved screenings by predicted PHQ-9 severity.')}
+                ${chartCard('riskBandChart', 'Risk band distribution', 'Low, medium, and high risk mix from saved visits.')}
+                ${chartCard('predictionsTimeChart', 'Predictions over time', 'Daily saved screening volume.')}
+                ${chartCard('phqAverageChart', 'Average PHQ-9 score over time', 'Average PHQ-9 total by visit date.')}
+                ${chartCard('genderRiskChart', 'Gender-wise risk', 'Fairness report risk percentage by gender.')}
+                ${chartCard('ageRiskChart', 'Age-wise risk', 'Fairness report risk percentage by age group.')}
             </div>
-            <div class="card" style="margin-top:1rem;">
+
+            <div class="card dashboard-recent-card">
                 <h2 class="section-title">Recent patient predictions</h2>
                 ${renderHistoryRecords(state.history.slice(0, 8))}
             </div>
@@ -961,20 +980,23 @@ function renderFairnessRows(type, records, summary = {}) {
         ${sorted.map(row => {
             const percentage = Math.round(riskPercentage(row));
             const band = percentage >= 30 ? 'High' : percentage >= 20 ? 'Medium' : 'Low';
+            const groupLabel = row.group_label || formatGroupValue(row.group_column, row.group_value);
+            const flag = row.fairness_flag || 'OK';
+            const flagClass = flag === 'Warning' ? 'badge-high' : flag === 'Review' || flag === 'Low Sample Size' ? 'badge-medium' : 'badge-low';
             return `
                 <div class="fairness-row">
-                    <strong>${escapeHtml(formatGroupValue(row.group_column, row.group_value))}</strong>
+                    <strong>${escapeHtml(groupLabel)}</strong>
                     <div>
                         <div class="progress-track"><div class="progress-fill ${band.toLowerCase()}" style="width:${percentage}%"></div></div>
-                        <small class="section-note">Accuracy ${roundPercent(row.accuracy)} | F1 ${roundPercent(row.f1)}</small>
+                        <small class="section-note">Accuracy ${roundPercent(row.accuracy)} | F1 ${roundPercent(row.f1)}${row.notes ? ` | ${escapeHtml(row.notes)}` : ''}</small>
                     </div>
-                    <span class="badge badge-${band.toLowerCase()}">${percentage}% ${band}</span>
+                    <span class="badge ${flagClass}">${escapeHtml(flag)}</span>
                 </div>
             `;
         }).join('')}
         <div class="summary-pair">
-            <div class="soft-card"><div class="stat-label">Highest risk group</div><div class="stat-value" style="color:var(--high);">${escapeHtml(formatGroupValue(highest.group_column, highest.group_value))}</div></div>
-            <div class="soft-card"><div class="stat-label">Lowest risk group</div><div class="stat-value" style="color:var(--low);">${escapeHtml(formatGroupValue(lowest.group_column, lowest.group_value))}</div></div>
+            <div class="soft-card"><div class="stat-label">Highest risk group</div><div class="stat-value" style="color:var(--high);">${escapeHtml(highest.group_label || formatGroupValue(highest.group_column, highest.group_value))}</div></div>
+            <div class="soft-card"><div class="stat-label">Lowest risk group</div><div class="stat-value" style="color:var(--low);">${escapeHtml(lowest.group_label || formatGroupValue(lowest.group_column, lowest.group_value))}</div></div>
         </div>
         <div class="${summary.bias_detected ? 'error-state' : 'success'}" style="margin-top:1rem;">
             <strong>${summary.bias_detected ? 'Bias detected' : 'No major bias detected'}:</strong> ${escapeHtml(summary.fairness_warning || 'Fairness summary is not available.')}
@@ -1433,6 +1455,22 @@ function safeRenderChart(canvasId, config) {
     charts[canvasId] = new Chart(canvas, config);
 }
 
+function renderChartEmpty(canvasId, message) {
+    if (charts[canvasId]) {
+        charts[canvasId].destroy();
+        delete charts[canvasId];
+    }
+    const canvas = document.getElementById(canvasId);
+    const box = canvas?.closest('.chart-box');
+    if (box) {
+        box.innerHTML = `<div class="chart-empty-state">${escapeHtml(message)}</div>`;
+    }
+}
+
+function hasChartData(values) {
+    return values.some(value => Number(value || 0) > 0);
+}
+
 function destroyCharts() {
     Object.keys(charts).forEach(id => {
         charts[id].destroy();
@@ -1440,19 +1478,27 @@ function destroyCharts() {
     });
 }
 
-function chartCard(id, title) {
-    return `<div class="chart-card"><h3 class="section-title">${title}</h3><div class="chart-box"><canvas id="${id}"></canvas></div></div>`;
+function chartCard(id, title, subtitle = '') {
+    return `<div class="chart-card"><div class="chart-card-head"><h3 class="section-title">${title}</h3>${subtitle ? `<p class="section-note">${subtitle}</p>` : ''}</div><div class="chart-box"><canvas id="${id}"></canvas></div></div>`;
 }
 
 function renderSeverityChart(counts) {
     const labels = Object.keys(counts);
     const values = Object.values(counts);
+    if (!labels.length || !hasChartData(values)) {
+        renderChartEmpty('severityChart', 'No saved severity data yet.');
+        return;
+    }
     safeRenderChart('severityChart', doughnutConfig(labels, values, ['#178f6d', '#7fc8a9', '#f2a51a', '#ef7c55', '#de3f45']));
 }
 
 function renderRiskBandChart(counts) {
     const labels = Object.keys(counts);
     const values = Object.values(counts);
+    if (!labels.length || !hasChartData(values)) {
+        renderChartEmpty('riskBandChart', 'No saved risk-band data yet.');
+        return;
+    }
     safeRenderChart('riskBandChart', doughnutConfig(labels, values, ['#178f6d', '#f2a51a', '#de3f45']));
 }
 
@@ -1466,6 +1512,11 @@ function renderTimeCharts(records) {
         byDate[date].phqTotal += Number(item.phq9_total || 0);
     });
     const labels = Object.keys(byDate).sort();
+    if (!labels.length) {
+        renderChartEmpty('predictionsTimeChart', 'No saved prediction timeline yet.');
+        renderChartEmpty('phqAverageChart', 'No PHQ-9 trend data yet.');
+        return;
+    }
     safeRenderChart('predictionsTimeChart', lineConfig(labels, labels.map(date => byDate[date].count), 'Predictions'));
     safeRenderChart('phqAverageChart', lineConfig(labels, labels.map(date => byDate[date].count ? Number((byDate[date].phqTotal / byDate[date].count).toFixed(2)) : 0), 'Average PHQ-9'));
 }
@@ -1473,7 +1524,15 @@ function renderTimeCharts(records) {
 function renderFairnessDashboardCharts(records) {
     const gender = records.filter(item => item.group_column === 'RIAGENDR');
     const age = records.filter(item => item.group_column === 'AGE_GROUP');
-    safeRenderChart('genderRiskChart', barConfig(gender.map(item => formatGroupValue(item.group_column, item.group_value)), gender.map(item => Math.round(riskPercentage(item))), 'Risk %'));
+    if (!gender.length) {
+        renderChartEmpty('genderRiskChart', 'Run fairness report to view gender risk.');
+    } else {
+        safeRenderChart('genderRiskChart', barConfig(gender.map(item => formatGroupValue(item.group_column, item.group_value)), gender.map(item => Math.round(riskPercentage(item))), 'Risk %'));
+    }
+    if (!age.length) {
+        renderChartEmpty('ageRiskChart', 'Run fairness report to view age-group risk.');
+        return;
+    }
     safeRenderChart('ageRiskChart', barConfig(age.map(item => formatGroupValue(item.group_column, item.group_value)), age.map(item => Math.round(riskPercentage(item))), 'Risk %'));
 }
 
@@ -1504,7 +1563,7 @@ function doughnutConfig(labels, values, colors) {
     return {
         type: 'doughnut',
         data: { labels, datasets: [{ data: values, backgroundColor: colors }] },
-        options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: 'bottom' } } }
+        options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 16 } } } }
     };
 }
 
@@ -1528,13 +1587,33 @@ function chartOptions() {
     return {
         responsive: true,
         maintainAspectRatio: false,
-        plugins: { legend: { position: 'bottom' } },
-        scales: { y: { beginAtZero: true } }
+        plugins: { legend: { position: 'bottom', labels: { usePointStyle: true, boxWidth: 8, boxHeight: 8, padding: 16 } } },
+        scales: {
+            x: { grid: { display: false }, ticks: { color: '#64716b', maxRotation: 0, autoSkip: true } },
+            y: { beginAtZero: true, grid: { color: 'rgba(100, 113, 107, 0.14)' }, ticks: { color: '#64716b' } }
+        }
     };
 }
 
 function statCard(label, value, help = '') {
     return `<div class="stat-card"><div class="stat-label">${escapeHtml(label)}</div><div class="stat-value">${escapeHtml(value ?? 'N/A')}</div>${help ? `<div class="stat-help">${escapeHtml(help)}</div>` : ''}</div>`;
+}
+
+function metricCard(label, value, help = '', tone = 'total') {
+    return `
+        <div class="metric-card metric-${tone}">
+            <div class="metric-topline">
+                <div class="metric-label">${escapeHtml(label)}</div>
+                <span class="metric-icon" aria-hidden="true"></span>
+            </div>
+            <div class="metric-value">${escapeHtml(value ?? 'N/A')}</div>
+            ${help ? `<div class="metric-helper">${escapeHtml(help)}</div>` : ''}
+        </div>
+    `;
+}
+
+function statusPill(label, value, tone = 'ready') {
+    return `<span class="status-pill status-${tone}"><span>${escapeHtml(label)}</span><strong>${escapeHtml(value)}</strong></span>`;
 }
 
 function healthCard(label, value) {
@@ -1640,6 +1719,22 @@ function formatDateTime(value) {
     if (!value) return 'N/A';
     const date = new Date(value);
     return Number.isNaN(date.getTime()) ? value : date.toLocaleString();
+}
+
+function formatCompactDateTime(value) {
+    if (!value) return 'No saved predictions yet';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return String(value);
+    const datePart = date.toLocaleDateString(undefined, {
+        month: 'short',
+        day: '2-digit',
+        year: 'numeric'
+    });
+    const timePart = date.toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit'
+    });
+    return `${datePart} · ${timePart}`;
 }
 
 function percent(value) {
