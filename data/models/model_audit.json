@@ -2,21 +2,21 @@
   "artifacts": {
     "fairness_report": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:29.655854+00:00",
+      "modified_at": "2026-06-04T07:54:52.800082+00:00",
       "path": "data\\fairness_reports\\fairness_report.csv",
       "sha256": "68a819972e5f8a9c69ee34fd29af0aa450a19d5f8c7fab3d1ece4dd8b6d0b442",
       "size_bytes": 5997
     },
     "model": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:29.456972+00:00",
+      "modified_at": "2026-06-04T07:54:52.454755+00:00",
       "path": "data\\models\\model.joblib",
-      "sha256": "190d9c8f9d8a35b96c83c4f5ae2f4096c9cbf04e027e0ad865da8ff29df1d5ac",
+      "sha256": "391f9b99c2fe0dca95fecdd4ae75bc77579b83a54ca910308ac6e10c23eaf1fc",
       "size_bytes": 4822
     },
     "preprocessor": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:28.776334+00:00",
+      "modified_at": "2026-06-04T07:54:51.509713+00:00",
       "path": "data\\processed\\preprocessor.joblib",
       "sha256": "e547514235c12c0a781cfb6cdacb2c185d38dbddcb30498555228def74033332",
       "size_bytes": 6218
@@ -37,28 +37,28 @@
     },
     "test": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:28.745629+00:00",
+      "modified_at": "2026-06-04T07:54:51.466023+00:00",
       "path": "data\\processed\\test.csv",
       "sha256": "e78fcb54c4af635f882efc18ac3e9d91ffa864361207a8a5a8856a97195abb56",
       "size_bytes": 568284
     },
     "test_raw": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:28.774331+00:00",
+      "modified_at": "2026-06-04T07:54:51.506713+00:00",
       "path": "data\\processed\\test_raw.csv",
       "sha256": "9943511e4c6464af12a2c3cc9fd20fbcad1be747881b1be10c58d731c39b5cc9",
       "size_bytes": 127738
     },
     "train": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:28.714907+00:00",
+      "modified_at": "2026-06-04T07:54:51.422737+00:00",
       "path": "data\\processed\\train.csv",
       "sha256": "02b42bedf09b76d257447ee92e78235cc2b28150d0892ea8629e637d33e8699e",
       "size_bytes": 1324554
     },
     "train_raw": {
       "exists": true,
-      "modified_at": "2026-06-04T07:45:28.764325+00:00",
+      "modified_at": "2026-06-04T07:54:51.493372+00:00",
       "path": "data\\processed\\train_raw.csv",
       "sha256": "353aa313bf2a155adf9801a11cd6f5f67497cb26241ee55e7139cf86eb672aca",
       "size_bytes": 297988
@@ -83,6 +83,7 @@
     "row_count": 25
   },
   "features": {
+    "api_primary_severity_note": "API predicted_severity now follows PHQ-9 scoring boundaries as the primary screening result. model_predicted_severity is retained as the supporting trained model estimate.",
     "feature_columns": [
       "RIDAGEYR",
       "RIAGENDR",
@@ -135,7 +136,7 @@
       "SEVERITY"
     ]
   },
-  "generated_at": "2026-06-04T07:47:36.554677+00:00",
+  "generated_at": "2026-06-04T07:55:03.737567+00:00",
   "model": {
     "accuracy_note": "Current model uses PHQ-9 answers as features while SEVERITY is derived from PHQ9_TOTAL. High accuracy is expected because the model can learn the PHQ-9 scoring rule. This is appropriate for demo screening/classification, not independent clinical prediction.",
     "accuracy_suspiciously_high": true,
@@ -278,7 +279,7 @@
       "recall": 0.9913151364764268,
       "test_size": 1612,
       "train_size": 3760,
-      "trained_at": "2026-06-04T07:45:29.383359+00:00"
+      "trained_at": "2026-06-04T07:54:52.329290+00:00"
     },
     "model_type": "Logistic Regression",
     "prediction_label_distribution": {
@@ -297,7 +298,7 @@
     },
     "test_size": 1612,
     "train_size": 3760,
-    "trained_at": "2026-06-04T07:45:29.383359+00:00"
+    "trained_at": "2026-06-04T07:54:52.329290+00:00"
   },
   "phq9_total_and_severity": {
     "processed_totals_match_cleaned_phq_sum": true,
@@ -381,7 +382,10 @@
   "sample_prediction_checks": [
     {
       "expected_severity": "Minimal",
+      "manual_severity": "Minimal",
       "matches_expected": true,
+      "model_agreement": true,
+      "model_predicted_severity": "Minimal",
       "phq9_total": 0,
       "predicted_severity": "Minimal",
       "probabilities": {
@@ -393,11 +397,15 @@
       },
       "recommendation": "Continue routine wellness monitoring.",
       "risk_band": "Low",
-      "risk_percentage": 100.0
+      "risk_percentage": 100.0,
+      "rule_based_severity": "Minimal"
     },
     {
       "expected_severity": "Mild",
+      "manual_severity": "Mild",
       "matches_expected": true,
+      "model_agreement": true,
+      "model_predicted_severity": "Mild",
       "phq9_total": 5,
       "predicted_severity": "Mild",
       "probabilities": {
@@ -409,11 +417,15 @@
       },
       "recommendation": "Schedule follow-up if symptoms continue or increase.",
       "risk_band": "Low",
-      "risk_percentage": 89.9
+      "risk_percentage": 89.9,
+      "rule_based_severity": "Mild"
     },
     {
       "expected_severity": "Moderate",
+      "manual_severity": "Moderate",
       "matches_expected": true,
+      "model_agreement": true,
+      "model_predicted_severity": "Moderate",
       "phq9_total": 10,
       "predicted_severity": "Moderate",
       "probabilities": {
@@ -425,13 +437,17 @@
       },
       "recommendation": "Mental health follow-up is suggested.",
       "risk_band": "Medium",
-      "risk_percentage": 52.4
+      "risk_percentage": 52.4,
+      "rule_based_severity": "Moderate"
     },
     {
       "expected_severity": "Moderately Severe",
-      "matches_expected": false,
+      "manual_severity": "Moderately Severe",
+      "matches_expected": true,
+      "model_agreement": false,
+      "model_predicted_severity": "Moderate",
       "phq9_total": 15,
-      "predicted_severity": "Moderate",
+      "predicted_severity": "Moderately Severe",
       "probabilities": {
         "Mild": 1.5023029688732806e-05,
         "Minimal": 1.6958895494927574e-23,
@@ -439,15 +455,19 @@
         "Moderately Severe": 0.29610349129708474,
         "Severe": 0.00026764583249532875
       },
-      "recommendation": "Mental health follow-up is suggested.",
-      "risk_band": "Medium",
-      "risk_percentage": 70.4
+      "recommendation": "Immediate mental health follow-up is advised.",
+      "risk_band": "High",
+      "risk_percentage": 70.4,
+      "rule_based_severity": "Moderately Severe"
     },
     {
       "expected_severity": "Severe",
-      "matches_expected": false,
+      "manual_severity": "Severe",
+      "matches_expected": true,
+      "model_agreement": false,
+      "model_predicted_severity": "Moderately Severe",
       "phq9_total": 20,
-      "predicted_severity": "Moderately Severe",
+      "predicted_severity": "Severe",
       "probabilities": {
         "Mild": 9.091551592128419e-13,
         "Minimal": 4.8261756338257195e-39,
@@ -457,11 +477,15 @@
       },
       "recommendation": "Immediate mental health follow-up is advised.",
       "risk_band": "High",
-      "risk_percentage": 62.4
+      "risk_percentage": 62.4,
+      "rule_based_severity": "Severe"
     },
     {
       "expected_severity": "Severe",
+      "manual_severity": "Severe",
       "matches_expected": true,
+      "model_agreement": true,
+      "model_predicted_severity": "Severe",
       "phq9_total": 27,
       "predicted_severity": "Severe",
       "probabilities": {
@@ -473,9 +497,16 @@
       },
       "recommendation": "Immediate mental health follow-up is advised.",
       "risk_band": "High",
-      "risk_percentage": 99.9
+      "risk_percentage": 99.9,
+      "rule_based_severity": "Severe"
     }
   ],
+  "sample_prediction_summary": {
+    "api_primary_severity_note": "API predicted_severity now follows PHQ-9 scoring boundaries as the primary screening result. model_predicted_severity is retained as the supporting trained model estimate.",
+    "boundary_sample_count": 6,
+    "model_agreement_count": 4,
+    "model_mismatch_count": 2
+  },
   "train_test_split": {
     "duplicate_seqn_across_train_test": [],
     "duplicate_seqn_count": 0,

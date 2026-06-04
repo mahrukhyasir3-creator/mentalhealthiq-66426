@@ -118,6 +118,10 @@ class PredictionResponse(BaseModel):
     visit_time: Optional[str] = None
     doctor_notes: Optional[str] = None
     predicted_severity: str
+    rule_based_severity: str
+    model_predicted_severity: str
+    model_agreement: bool
+    model_note: Optional[str] = None
     severity: str
     risk_score: float
     risk_percentage: float
@@ -187,6 +191,20 @@ def calculate_phq9_total(payload: PredictionInput) -> int:
         + payload.DPQ080
         + payload.DPQ090
     )
+
+
+def phq9_severity_from_total(total: int) -> str:
+    """Map PHQ-9 total score to the standard screening severity category."""
+
+    if total <= 4:
+        return "Minimal"
+    if total <= 9:
+        return "Mild"
+    if total <= 14:
+        return "Moderate"
+    if total <= 19:
+        return "Moderately Severe"
+    return "Severe"
 
 
 def risk_band_from_severity(severity: str) -> str:
@@ -348,14 +366,22 @@ def recommendation_for_severity(severity: str) -> str:
     return "Immediate mental health follow-up is advised."
 
 
-def explanation_for_result(severity: str, phq9_total: int, risk_band: str) -> str:
+def explanation_for_result(
+    severity: str,
+    phq9_total: int,
+    risk_band: str,
+    model_severity: Optional[str] = None,
+) -> str:
     """Return a simple explanation suitable for clinic staff."""
 
-    return (
+    explanation = (
         f"The PHQ-9 score is {phq9_total}, which falls in the {severity} range. "
-        f"The model estimates this as {risk_band.lower()} risk based on the PHQ-9 answers "
-        "and demographic fields."
+        "The primary screening result follows PHQ-9 scoring boundaries."
     )
+    if model_severity:
+        explanation += f" The trained model estimate is {model_severity}."
+    explanation += f" The screening risk band is {risk_band.lower()}."
+    return explanation
 
 
 def patient_fairness_flag(payload: PredictionInput, risk_band: str) -> bool:
@@ -381,9 +407,17 @@ def predict_payload(payload: PredictionInput) -> Dict[str, Any]:
 
     features = preprocessor.transform(create_input_dataframe(payload))
     prediction_encoded = model.predict(features)
-    predicted_severity = str(model.label_encoder.inverse_transform(prediction_encoded)[0])
+    model_predicted_severity = str(model.label_encoder.inverse_transform(prediction_encoded)[0])
     phq9_total = calculate_phq9_total(payload)
+    rule_based_severity = phq9_severity_from_total(phq9_total)
+    predicted_severity = rule_based_severity
+    model_agreement = model_predicted_severity == rule_based_severity
     risk_band = risk_band_from_severity(predicted_severity)
+    model_note = (
+        "Model estimate differs from PHQ-9 scoring; clinical screening should follow the PHQ-9 score."
+        if not model_agreement
+        else "Model estimate agrees with PHQ-9 scoring."
+    )
 
     probabilities: Dict[str, float] = {}
     risk_score = 0.0
@@ -405,6 +439,10 @@ def predict_payload(payload: PredictionInput) -> Dict[str, Any]:
         "visit_time": payload.visit_time,
         "doctor_notes": payload.doctor_notes,
         "predicted_severity": predicted_severity,
+        "rule_based_severity": rule_based_severity,
+        "model_predicted_severity": model_predicted_severity,
+        "model_agreement": model_agreement,
+        "model_note": model_note,
         "severity": predicted_severity,
         "risk_score": risk_score,
         "risk_percentage": round(risk_score * 100, 1),
@@ -413,7 +451,12 @@ def predict_payload(payload: PredictionInput) -> Dict[str, Any]:
         "recommendation": recommendation_for_severity(predicted_severity),
         "warning": prediction_warning(predicted_severity),
         "fairness_flag": patient_fairness_flag(payload, risk_band),
-        "explanation": explanation_for_result(predicted_severity, phq9_total, risk_band),
+        "explanation": explanation_for_result(
+            predicted_severity,
+            phq9_total,
+            risk_band,
+            model_predicted_severity,
+        ),
         "probabilities": probabilities,
         "timestamp": timestamp,
         "model_type": getattr(model, "model_type", "unknown"),

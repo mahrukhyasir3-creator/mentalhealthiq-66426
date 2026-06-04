@@ -27,7 +27,16 @@ def test_audit_model_writes_expected_report(
     assert audit["phq_cleaning"]["invalid_values_not_counted_in_total"] is True
     assert audit["train_test_split"]["duplicate_seqn_count"] == 0
     assert audit["features"]["leakage_caveat"]
+    assert audit["features"]["api_primary_severity_note"]
+    assert audit["sample_prediction_summary"]["boundary_sample_count"] == 6
     assert len(audit["sample_prediction_checks"]) == 6
-    assert {"phq9_total", "expected_severity", "predicted_severity"}.issubset(
+    assert {
+        "phq9_total",
+        "expected_severity",
+        "rule_based_severity",
+        "predicted_severity",
+        "model_predicted_severity",
+        "model_agreement",
+    }.issubset(
         audit["sample_prediction_checks"][0]
     )

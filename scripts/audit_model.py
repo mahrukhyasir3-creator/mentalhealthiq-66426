@@ -19,6 +19,7 @@ from mentalhealthiq.api import (  # noqa: E402
     PredictionInput,
     calculate_phq9_total,
     create_input_dataframe,
+    phq9_severity_from_total,
     recommendation_for_severity,
     risk_band_from_severity,
 )
@@ -67,6 +68,10 @@ LEAKAGE_CAVEAT = (
     "Current model uses PHQ-9 answers as features while SEVERITY is derived from PHQ9_TOTAL. "
     "High accuracy is expected because the model can learn the PHQ-9 scoring rule. This is "
     "appropriate for demo screening/classification, not independent clinical prediction."
+)
+API_PRIMARY_SEVERITY_NOTE = (
+    "API predicted_severity now follows PHQ-9 scoring boundaries as the primary screening "
+    "result. model_predicted_severity is retained as the supporting trained model estimate."
 )
 
 
@@ -195,23 +200,29 @@ def sample_prediction_checks(
         payload = PredictionInput(**payload_data)
         features = preprocessor.transform(create_input_dataframe(payload))
         prediction_encoded = model.predict(features)
-        predicted_severity = str(model.label_encoder.inverse_transform(prediction_encoded)[0])
+        model_predicted_severity = str(model.label_encoder.inverse_transform(prediction_encoded)[0])
         probability_values = model.predict_proba(features)[0] if hasattr(model.classifier, "predict_proba") else []
         probabilities = {
             str(label): float(probability)
             for label, probability in zip(model.label_encoder.classes_, probability_values)
         }
-        expected_severity = severity_from_total(total)
+        manual_severity = severity_from_total(total)
+        rule_based_severity = phq9_severity_from_total(total)
+        model_agreement = model_predicted_severity == rule_based_severity
         risk_score = float(max(probability_values)) if len(probability_values) else 0.0
         checks.append(
             {
                 "phq9_total": calculate_phq9_total(payload),
-                "expected_severity": expected_severity,
-                "predicted_severity": predicted_severity,
-                "matches_expected": predicted_severity == expected_severity,
-                "risk_band": risk_band_from_severity(predicted_severity),
+                "expected_severity": manual_severity,
+                "manual_severity": manual_severity,
+                "rule_based_severity": rule_based_severity,
+                "predicted_severity": rule_based_severity,
+                "model_predicted_severity": model_predicted_severity,
+                "model_agreement": model_agreement,
+                "matches_expected": rule_based_severity == manual_severity,
+                "risk_band": risk_band_from_severity(rule_based_severity),
                 "risk_percentage": round(risk_score * 100, 1),
-                "recommendation": recommendation_for_severity(predicted_severity),
+                "recommendation": recommendation_for_severity(rule_based_severity),
                 "probabilities": probabilities,
             }
         )
@@ -274,6 +285,8 @@ def audit_model(
     metrics = model.metrics or {}
     test_distribution = distribution(test_df[TARGET_COLUMN].astype(str))
     prediction_distribution = distribution(pd.Series(y_pred_labels))
+    sample_checks = sample_prediction_checks(preprocessor, model)
+    sample_mismatch_count = sum(1 for check in sample_checks if not check["model_agreement"])
 
     fairness_summary: Dict[str, Any] = {
         "path": display_path(fairness_report_path),
@@ -342,6 +355,7 @@ def audit_model(
             "raw_output_columns": RAW_OUTPUT_COLUMNS,
             "phq_columns_used_as_features": PHQ_COLUMNS,
             "leakage_caveat": LEAKAGE_CAVEAT,
+            "api_primary_severity_note": API_PRIMARY_SEVERITY_NOTE,
         },
         "model": {
             "model_type": model.model_type,
@@ -356,7 +370,13 @@ def audit_model(
             "accuracy_suspiciously_high": bool(float(metrics.get("accuracy", 0.0)) >= 0.95),
             "accuracy_note": LEAKAGE_CAVEAT,
         },
-        "sample_prediction_checks": sample_prediction_checks(preprocessor, model),
+        "sample_prediction_summary": {
+            "boundary_sample_count": len(sample_checks),
+            "model_mismatch_count": sample_mismatch_count,
+            "model_agreement_count": len(sample_checks) - sample_mismatch_count,
+            "api_primary_severity_note": API_PRIMARY_SEVERITY_NOTE,
+        },
+        "sample_prediction_checks": sample_checks,
         "fairness_report": fairness_summary,
         "artifacts": artifact_info(artifacts),
     }

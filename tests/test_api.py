@@ -30,6 +30,33 @@ def _sample_prediction_payload(raw_test_path: Path) -> dict:
     }
 
 
+def _prediction_payload_for_total(total: int) -> dict:
+    values = []
+    remaining = total
+    for _ in range(9):
+        value = min(3, remaining)
+        values.append(value)
+        remaining -= value
+
+    return {
+        "RIDAGEYR": 35,
+        "RIAGENDR": 2,
+        "RIDRETH1": 3,
+        "INDHHIN2": 5,
+        "DMDEDUC2": 4,
+        "DMDMARTL": 1,
+        "DPQ010": values[0],
+        "DPQ020": values[1],
+        "DPQ030": values[2],
+        "DPQ040": values[3],
+        "DPQ050": values[4],
+        "DPQ060": values[5],
+        "DPQ070": values[6],
+        "DPQ080": values[7],
+        "DPQ090": values[8],
+    }
+
+
 @pytest.fixture(autouse=True)
 def disable_mongodb(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.delenv("MONGODB_URI", raising=False)
@@ -88,8 +115,46 @@ def test_predict_endpoint_uses_temp_artifacts(
     assert "explanation" in json_data
     assert "warning" in json_data
     assert "probabilities" in json_data
+    assert "rule_based_severity" in json_data
+    assert "model_predicted_severity" in json_data
+    assert "model_agreement" in json_data
     assert "timestamp" in json_data
     assert json_data["predictions_saved"] is False
+
+
+@pytest.mark.parametrize(
+    ("total", "expected_severity"),
+    [
+        (0, "Minimal"),
+        (5, "Mild"),
+        (10, "Moderate"),
+        (15, "Moderately Severe"),
+        (20, "Severe"),
+        (27, "Severe"),
+    ],
+)
+def test_predict_endpoint_uses_phq9_rule_severity_as_primary_result(
+    ml_artifacts: dict[str, Path],
+    monkeypatch: pytest.MonkeyPatch,
+    total: int,
+    expected_severity: str,
+) -> None:
+    monkeypatch.setattr(api, "MODEL_PATH", ml_artifacts["model_path"])
+    monkeypatch.setattr(api, "PREPROCESSOR_PATH", ml_artifacts["preprocessor_path"])
+    api.app.state.inference = None
+
+    with TestClient(api.app) as client:
+        response = client.post("/predict", json=_prediction_payload_for_total(total))
+
+    assert response.status_code == 200
+    json_data = response.json()
+    assert json_data["phq9_total"] == total
+    assert json_data["rule_based_severity"] == expected_severity
+    assert json_data["predicted_severity"] == expected_severity
+    assert json_data["severity"] == expected_severity
+    assert isinstance(json_data["model_predicted_severity"], str)
+    assert isinstance(json_data["model_agreement"], bool)
+    assert "probabilities" in json_data
 
 
 def test_predict_auto_assigns_patient_id(

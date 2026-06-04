@@ -795,6 +795,8 @@ function normalizeResult(result, payload) {
     const severity = result.predicted_severity || result.severity || getSeverityFromPHQ9(calculatePHQ9TotalFromPayload(payload));
     const riskBand = result.risk_band || getRiskBandFromSeverity(severity);
     const phq9Total = result.phq9_total ?? calculatePHQ9TotalFromPayload(payload);
+    const ruleBasedSeverity = result.rule_based_severity || severity;
+    const modelPredictedSeverity = result.model_predicted_severity || result.model_severity || severity;
     return {
         ...result,
         patient_id: result.patient_id || payload.patient_id,
@@ -803,6 +805,10 @@ function normalizeResult(result, payload) {
         visit_time: result.visit_time || payload.visit_time,
         doctor_notes: result.doctor_notes || payload.doctor_notes,
         predicted_severity: severity,
+        rule_based_severity: ruleBasedSeverity,
+        model_predicted_severity: modelPredictedSeverity,
+        model_agreement: result.model_agreement ?? (modelPredictedSeverity === ruleBasedSeverity),
+        model_note: result.model_note || '',
         severity,
         risk_band: riskBand,
         risk_score: Number(result.risk_score || 0),
@@ -811,6 +817,7 @@ function normalizeResult(result, payload) {
         recommendation: result.recommendation || recommendationForSeverity(severity),
         warning: result.warning || warningForSeverity(severity),
         probabilities: result.probabilities || {},
+        explanation: result.explanation || explanationForResult({ ...result, predicted_severity: severity, phq9_total: phq9Total, risk_band: riskBand }),
         timestamp: result.timestamp || new Date().toISOString()
     };
 }
@@ -885,8 +892,10 @@ function renderPredictionResult(result) {
                         ${statCard('Predicted severity', result.predicted_severity)}
                         ${statCard('Risk band', riskBand)}
                     </div>
+                    ${result.model_predicted_severity ? `<p class="section-note" style="margin-top:0.75rem;">Model estimate: ${escapeHtml(result.model_predicted_severity)}${result.model_agreement === false ? ' | PHQ-9 score is used as the primary screening result.' : ''}</p>` : ''}
                     <div class="recommendation-box" style="margin-top:1rem;"><strong>Recommendation:</strong> ${escapeHtml(result.recommendation)}</div>
                     <div class="error-state" style="margin-top:0.75rem;"><strong>Warning:</strong> ${escapeHtml(result.warning)}</div>
+                    ${result.model_note ? `<div class="empty-state" style="margin-top:0.75rem;">${escapeHtml(result.model_note)}</div>` : ''}
                     <div class="success" style="margin-top:0.75rem;"><strong>Doctor-friendly explanation:</strong> ${escapeHtml(result.explanation || explanationForResult(result))}</div>
                     ${result.mongo_note ? `<div class="empty-state" style="margin-top:0.75rem;">${escapeHtml(result.mongo_note)}</div>` : ''}
                 </div>

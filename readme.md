@@ -6,6 +6,8 @@ Clinic-style PHQ-9 depression severity screening using NHANES-style demographic 
 
 MentalHealthIQ is a PHQ-9 screening and severity classification demo. The current model uses the nine PHQ-9 answers as input features while the severity label is derived from the PHQ-9 total score. This is useful for demonstrating the end-to-end workflow, but it is not an independent clinical diagnosis model.
 
+API prediction responses use standard PHQ-9 scoring boundaries as the primary `predicted_severity`. The trained ML output is returned separately as `model_predicted_severity` for supporting analytics/demo context.
+
 ## Quick Start
 
 ### Windows PowerShell
